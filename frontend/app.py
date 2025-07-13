@@ -14,8 +14,8 @@ def hello_world():
 @app.route("/generate")
 def generate_boulder():
     boulder = setter.get_boulder()
-    similar_boulder, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
+    similar_boulders, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
     return {
         "boulder": ','.join(boulder),  # Convert holds to comma-separated string
-        "similar": f"Most similar Boulder: {similar_boulder}, Score: {score*100:.2f}%"
+        "similar": f"Most similar Boulders ({score*100:.2f}%): {similar_boulders}"
     }

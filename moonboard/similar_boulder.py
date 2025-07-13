@@ -13,13 +13,16 @@ def jaccard_similarity(set1: set, set2: set) -> float:
 
 def similar_boulders(boulder, boulder_list):
     max_score = -1
-    similar_boulder = None
+    similar_boulders = []
     for other_boulder in boulder_list:
         score = jaccard_similarity(set(sorted(boulder)), set(sorted(other_boulder["holds"])))
+        other_boulder["score"] = score
+        similar_boulders.append(other_boulder)
         if score > max_score:
             max_score = score
-            similar_boulder = other_boulder
-    return similar_boulder, max_score
+    similar_boulders = [{k: v for k,v in similar_boulder.items() if k != "score"} for similar_boulder in similar_boulders if similar_boulder["score"] == max_score]
+    # similar_boulders = filter(lambda x: x["score"] == max_score, similar_boulders)
+    return similar_boulders, max_score
 
 
 def load_boulders_from_dataset(file_path):
