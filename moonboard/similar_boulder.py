@@ -1,6 +1,6 @@
 import json
 import sys
-import commons
+from . import commons
 
 def jaccard_similarity(set1: set, set2: set) -> float:
     """Calculate the Jaccard similarity between two sets."""

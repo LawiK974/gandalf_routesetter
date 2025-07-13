@@ -1,3 +1,86 @@
 <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
-<p>Gandalf : Moonboard generator</p>
+<h1>Gandalf : Moonboard generator</h1>
 <button>Generate</button>
+<div>
+    <p id="generated-boulder">Generated Boulder:</p>
+    <p id="similar-problem">Most similar Problem :</p>
+</div>
+<div style="position: relative; display: inline-block;">
+    <img src="{{ url_for('static', filename='2019.png') }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
+    <svg id="grid-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
+</div>
+<script>
+    const COLS = 11;
+    const ROWS = 18;
+
+    // Define offsets for the grid
+    const OFFSET_LEFT = 45; // Adjust as needed
+    const OFFSET_RIGHT = 20; // Adjust as needed
+    const OFFSET_TOP = 40; // Adjust as needed
+    const OFFSET_BOTTOM = 25; // Adjust as needed
+
+    function drawGridOverlay(selectedHolds) {
+        const img = document.querySelector('#moonboard-image');
+        const svg = document.querySelector('#grid-overlay');
+        const gridWidth = img.offsetWidth - OFFSET_LEFT - OFFSET_RIGHT;
+        const gridHeight = img.offsetHeight - OFFSET_TOP - OFFSET_BOTTOM;
+        const cellWidth = gridWidth / COLS;
+        const cellHeight = gridHeight / ROWS;
+
+        svg.innerHTML = ''; // Clear previous overlay
+
+        // Draw grid lines (optional, for debugging)
+        for (let i = 0; i <= COLS; i++) {
+            const x = OFFSET_LEFT + i * cellWidth;
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', x);
+            line.setAttribute('y1', OFFSET_TOP);
+            line.setAttribute('x2', x);
+            line.setAttribute('y2', OFFSET_TOP + gridHeight);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.5)'); // Increased opacity
+            line.setAttribute('stroke-width', '2'); // Increased width
+            svg.appendChild(line);
+        }
+        for (let i = 0; i <= ROWS; i++) {
+            const y = OFFSET_TOP + i * cellHeight;
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', OFFSET_LEFT);
+            line.setAttribute('y1', y);
+            line.setAttribute('x2', OFFSET_LEFT + gridWidth);
+            line.setAttribute('y2', y);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.5)'); // Increased opacity
+            line.setAttribute('stroke-width', '2'); // Increased width
+            svg.appendChild(line);
+        }
+
+        // Draw circles for selected holds
+        selectedHolds.forEach((hold, index) => {
+            const col = hold.charCodeAt(0) - 65; // Convert A-R to 0-10
+            const row = parseInt(hold.slice(1)) - 1; // Convert 1-18 to 0-17
+            const cx = OFFSET_LEFT + col * cellWidth + cellWidth / 2;
+            const cy = OFFSET_TOP + (ROWS - row - 1) * cellHeight + cellHeight / 2; // Reverse row calculation
+
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', cx);
+            circle.setAttribute('cy', cy);
+            circle.setAttribute('r', cellWidth * 0.4);
+            circle.setAttribute('fill', 'none');
+            circle.setAttribute('stroke', index === 0 ? '#00FF00' : index === selectedHolds.length - 1 ? '#FF0000' : '#0000FF'); // Green for first, red for last, blue for others
+            circle.setAttribute('stroke-width', '3');
+            svg.appendChild(circle);
+        });
+    }
+
+    document.querySelector('button').addEventListener('click', function() {
+        fetch('/generate')
+            .then(response => response.json())
+            .then(data => {
+                document.querySelector('#generated-boulder').textContent = 'Generated Boulder: ' + data.boulder;
+                document.querySelector('#similar-problem').textContent = data.similar;
+
+                const holds = data.boulder.split(','); // Assuming holds are comma-separated
+                drawGridOverlay(holds);
+            })
+            .catch(error => console.error('Error:', error));
+    });
+</script>

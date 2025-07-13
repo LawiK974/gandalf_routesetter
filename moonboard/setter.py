@@ -4,9 +4,8 @@
 import random
 import numpy as np
 import scipy.stats as stats
-import commons
-import similar_boulder as sb
-import os
+from . import commons
+from . import similar_boulder as sb
 
 SIZE = (18, 11)  # moonboard classique
 # SIZE = (12, 11)  # mini moonboard
