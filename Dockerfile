@@ -21,4 +21,4 @@ RUN export FLASK_APP=app.py
 # define the port number the container should expose
 EXPOSE 5000
 
-CMD ["flask", "--app", "frontend/app.py", "run"]
+CMD ["flask", "--debug", "--app", "frontend/app.py", "run", "-h", "0.0.0.0", "-p", "5000", "--no-reload"]

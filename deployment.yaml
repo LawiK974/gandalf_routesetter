@@ -24,6 +24,7 @@ spec:
       containers:
         - name: gandalf
           image: wikle/gandalf:latest
+          imagePullPolicy: Always
           ports:
             - protocol: TCP
               containerPort: 5000

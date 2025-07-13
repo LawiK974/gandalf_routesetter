@@ -3,7 +3,12 @@
 ## Boulder generator
 
 ```sh
-python3 moonboard/setter.py
+pip install -r requirements.txt
+flask --app frontend/app.py run --debug
 ```
 
-## Boulder grader
+## TODO
+
+- [ ] Train MoonboardRNN on 2019 dataset
+- [ ] Select version of moonboard
+- [ ] CSS styling
