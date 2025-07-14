@@ -8,6 +8,8 @@
 <div class="container d-flex justify-content-evenly flex-wrap">
     <div class="text-center d-inline-block">
         <h2>Boulder generator</h2>
+        <label for="span-slider" class="form-label">Climber Span: <span id="span-value">170</span> cm</label>
+        <input type="range" class="form-range" min="150" max="200" step="1" value="170" id="span-slider">
         <button id="generate_boulder" type="button" class="btn btn-warning">Generate boulder</button>
         <div>
             <p>Generated Boulder: <span id="generated-boulder"></span></p>
@@ -100,8 +102,16 @@
         });
     }
 
+    // Update span value display
+    const spanSlider = document.getElementById('span-slider');
+    const spanValue = document.getElementById('span-value');
+    spanSlider.addEventListener('input', function() {
+        spanValue.textContent = spanSlider.value;
+    });
+
     document.querySelector('#generate_boulder').addEventListener('click', function() {
-        fetch('/generate')
+        const span = spanSlider.value;
+        fetch(`/generate?span=${span}`)
             .then(response => response.json())
             .then(data => {
                 document.querySelector('#generated-boulder').textContent = data.boulder;
@@ -109,7 +119,7 @@
                 let similarList = '';
                 if (Array.isArray(data.similar) && data.similar.length > 0) {
                     similarList = '<ul class="text-start">' + data.similar.map(boulder => {
-                        return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade? '(' + boulder.userGrade + ')' : ''} by ${boulder.setter}. (${boulder.holds.join(', ')})</li>`;
+                        return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade? '(' + boulder.userGrade + ')' : ''} by <i>${boulder.setter}</i> ${boulder.rating}⭐️/${boulder.repeats}✅. (${boulder.holds.join(', ')})</li>`;
                     }).join('') + '</ul>';
                 } else {
                     similarList = '<i>No similar boulders found.</i>';
