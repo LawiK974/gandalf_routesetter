@@ -71,7 +71,6 @@ metadata:
   labels:
     app: gandalf
   name: gandalf
-  namespace: mediastack
 spec:
   ingressClassName: traefik
   rules:

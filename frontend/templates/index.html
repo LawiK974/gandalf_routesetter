@@ -1,14 +1,35 @@
-<link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
-<h1>Gandalf : Moonboard generator</h1>
-<button>Generate</button>
-<div>
-    <p id="generated-boulder">Generated Boulder:</p>
-    <p id="similar-problem">Most similar Problem :</p>
+{% extends 'base.html' %}
+
+{% block header %}
+<h1>{% block title %}{{ title }}{% endblock %}</h1>
+{% endblock %}
+
+{% block content %}
+<div class="container d-flex justify-content-evenly flex-wrap">
+    <div class="text-center d-inline-block">
+        <h2>Boulder generator</h2>
+        <button id="generate_boulder" type="button" class="btn btn-warning">Generate boulder</button>
+        <div>
+            <p>Generated Boulder: <span id="generated-boulder"></span></p>
+            <div style="position: relative; display: inline-block;">
+                <img src="{{ image_url }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
+                <svg id="grid-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
+            </div>
+        </div>
+    </div>
+    <div class="text-center d-inline-block">
+        <h2>Most similar problems :</h2>
+        <p id="similar-problem">Click the button to generate a boulder and see existing most similar problem here.</p>
+    </div>
+    <div class="text-center d-inline-block">
+        <h2>Name generator</h2>
+        <button id="generate_name" type="button" class="btn btn-warning">Generate Name</button>
+        <p >Generated Name: <span id="generated-name"></span></p>
+    </div>
 </div>
-<div style="position: relative; display: inline-block;">
-    <img src="{{ url_for('static', filename='2019.png') }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
-    <svg id="grid-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
-</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
     const COLS = 11;
     const ROWS = 18;
@@ -38,7 +59,7 @@
             line.setAttribute('x2', x);
             line.setAttribute('y2', OFFSET_TOP + gridHeight);
             line.setAttribute('stroke', 'rgba(255,255,255,0.5)'); // Increased opacity
-            line.setAttribute('stroke-width', '2'); // Increased width
+            line.setAttribute('stroke-width', '1'); // Increased width
             svg.appendChild(line);
         }
         for (let i = 0; i <= ROWS; i++) {
@@ -49,7 +70,7 @@
             line.setAttribute('x2', OFFSET_LEFT + gridWidth);
             line.setAttribute('y2', y);
             line.setAttribute('stroke', 'rgba(255,255,255,0.5)'); // Increased opacity
-            line.setAttribute('stroke-width', '2'); // Increased width
+            line.setAttribute('stroke-width', '1'); // Increased width
             svg.appendChild(line);
         }
 
@@ -65,22 +86,48 @@
             circle.setAttribute('cy', cy);
             circle.setAttribute('r', cellWidth * 0.4);
             circle.setAttribute('fill', 'none');
-            circle.setAttribute('stroke', index === 0 ? '#00FF00' : index === selectedHolds.length - 1 ? '#FF0000' : '#0000FF'); // Green for first, red for last, blue for others
-            circle.setAttribute('stroke-width', '3');
+            let strokeColor;
+            if (index === 0) {
+                strokeColor = '#00FF00'; // Green for first
+            } else if (index === selectedHolds.length - 1) {
+                strokeColor = '#FF0000'; // Red for last
+            } else {
+                strokeColor = '#0000FF'; // Blue for others
+            }
+            circle.setAttribute('stroke', strokeColor);
+            circle.setAttribute('stroke-width', '4');
             svg.appendChild(circle);
         });
     }
 
-    document.querySelector('button').addEventListener('click', function() {
+    document.querySelector('#generate_boulder').addEventListener('click', function() {
         fetch('/generate')
             .then(response => response.json())
             .then(data => {
-                document.querySelector('#generated-boulder').textContent = 'Generated Boulder: ' + data.boulder;
-                document.querySelector('#similar-problem').textContent = data.similar;
+                document.querySelector('#generated-boulder').textContent = data.boulder;
+                // Format similar boulders as a user-friendly list
+                let similarList = '';
+                if (Array.isArray(data.similar) && data.similar.length > 0) {
+                    similarList = '<ul class="text-start">' + data.similar.map(boulder => {
+                        return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade? '(' + boulder.userGrade + ')' : ''} by ${boulder.setter}. (${boulder.holds.join(', ')})</li>`;
+                    }).join('') + '</ul>';
+                } else {
+                    similarList = '<i>No similar boulders found.</i>';
+                }
+                document.querySelector('#similar-problem').innerHTML = `Existing problems, <b>${data.score}</b> similar to the IA generated problem` + similarList;
 
                 const holds = data.boulder.split(','); // Assuming holds are comma-separated
                 drawGridOverlay(holds);
             })
             .catch(error => console.error('Error:', error));
     });
+    document.querySelector('#generate_name').addEventListener('click', function() {
+        fetch('/generate-name')
+            .then(response => response.json())
+            .then(data => {
+                document.querySelector('#generated-name').textContent = data.name;
+            })
+            .catch(error => console.error('Error:', error));
+    });
 </script>
+{% endblock %}
