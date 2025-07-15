@@ -4,18 +4,12 @@
 import random
 import numpy as np
 import scipy.stats as stats
-from . import commons
-from . import similar_boulder as sb
 
 SIZE = (18, 11)  # moonboard classique
 # SIZE = (12, 11)  # mini moonboard
 INSERT_DISTANCE = 20  # cm entre les prises
 board = [[(x,y) for y in range(SIZE[1])] for x in range(SIZE[0])]
 ENVERGURE = 170
-
-def get_distance(a: tuple,b: tuple) -> float:
-    """ Calculates the distance between two holds in cm."""
-    return np.linalg.norm(np.array(a) - np.array(b)) * INSERT_DISTANCE
 
 def get_weight_gaussian(distance: float, mu: float = ENVERGURE/2, sigma: float = ENVERGURE/4) -> float:
     """ Returns a weight according to a gaussian distribution."""
@@ -41,7 +35,7 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE) 
         weight_list = []
         for row in board[previous[0]+1:]:
             for new in row:
-                distance =  get_distance(previous, new)
+                distance =  commons.get_distance_pos(previous, new)
                 # restriction a uniquement les prises au dessus de la precedente 
                 # et a une distance inferieure à l'envergure
                 if distance <= ENVERGURE:
@@ -55,9 +49,13 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE) 
 def main():
     """ Main function to generate a boulder problem."""
     boulder = get_boulder()
+    boulder = commons.sort_boulder_holds(boulder)
     print(f"Generated Boulder: {boulder}")
-    similar_boulder, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
-    print(f"Most similar Boulder: {similar_boulder}, Score: {score*100:.2f}%")
+    # similar_boulder, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
+    # print(f"Most similar Boulder: {similar_boulder}, Score: {score*100:.2f}%")
 
 if __name__ == "__main__":
+    import commons
     main()
+else:
+    from . import commons

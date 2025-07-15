@@ -5,7 +5,6 @@ import moonboard.similar_boulder as sb
 import moonboard.commons as commons
 from unique_names_generator import get_random_name
 from unique_names_generator.data import ADJECTIVES, ANIMALS, COLORS, COUNTRIES, LANGUAGES, NAMES, STAR_WARS
-import random
 
 app = Flask(__name__)
 
@@ -18,7 +17,7 @@ def hello_world():
 def generate_boulder():
     span = int(request.args.get('span', 170))
     boulder = setter.get_boulder(span=span)
-    similar_boulders, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
+    similar_boulders, score = sb.similar_boulders(commons.sort_boulder_holds(boulder), sb.load_boulders_from_dataset(commons.DATASET_PATH))
     return {
         "boulder": ','.join(boulder),  # Convert holds to comma-separated string
         "score": f"{score*100:.2f}%",

@@ -1,6 +1,5 @@
 import json
 import sys
-from . import commons
 
 def jaccard_similarity(set1: set, set2: set) -> float:
     """Calculate the Jaccard similarity between two sets."""
@@ -15,7 +14,7 @@ def similar_boulders(boulder, boulder_list):
     max_score = -1
     similar_boulders = []
     for other_boulder in boulder_list:
-        score = jaccard_similarity(set(sorted(boulder)), set(sorted(other_boulder["holds"])))
+        score = jaccard_similarity(set(boulder), set(other_boulder["holds"]))
         other_boulder["score"] = score
         similar_boulders.append(other_boulder)
         if score > max_score:
@@ -32,7 +31,7 @@ def load_boulders_from_dataset(file_path):
         dataset = json.load(file)
     for boulder in dataset["data"]:
         boulder_list.append({
-            "holds": [hold["description"] for hold in boulder["moves"]],
+            "holds": commons.sort_boulder_holds([hold["description"] for hold in boulder["moves"]]),
             "name": boulder["name"],
             "setter": boulder["setby"],
             "grade": boulder["grade"],
@@ -44,6 +43,7 @@ def load_boulders_from_dataset(file_path):
 
 def main(boulder: str):
     boulder = json.loads(boulder.replace("'", "\"")) # expected format: ["A1", "B2", "C3"]
+    boulder = commons.sort_boulder_holds(boulder)
     boulder_list = load_boulders_from_dataset(commons.DATASET_PATH)
     similar_boulder, score = similar_boulders(boulder, boulder_list)
 
@@ -53,7 +53,10 @@ def main(boulder: str):
         return "No similar boulder found."
 
 if __name__ == "__main__":
+    import commons
     if len(sys.argv) != 2:
         print("Usage: python similar_boulder.py <boulder>")
         sys.exit(1)
     print(main(*sys.argv[1:]))
+else:
+    from . import commons

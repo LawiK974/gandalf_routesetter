@@ -19,14 +19,16 @@
             </div>
         </div>
     </div>
-    <div class="text-center d-inline-block">
-        <h2>Most similar problems :</h2>
-        <p id="similar-problem">Click the button to generate a boulder and see existing most similar problem here.</p>
-    </div>
-    <div class="text-center d-inline-block">
-        <h2>Name generator</h2>
-        <button id="generate_name" type="button" class="btn btn-warning">Generate Name</button>
-        <p >Generated Name: <span id="generated-name"></span></p>
+    <div class="text-center d-flex flex-column align-items-center">
+        <div class="text-center d-inline-block">
+            <h2>Most similar problems :</h2>
+            <p id="similar-problem">Click the button to generate a boulder and see existing most similar problem here.</p>
+        </div>
+        <div class="text-center d-inline-block">
+            <h2>Name generator</h2>
+            <button id="generate_name" type="button" class="btn btn-warning">Generate Name</button>
+            <p >Generated Name: <span id="generated-name"></span></p>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -37,14 +39,22 @@
     const ROWS = 18;
 
     // Define offsets for the grid
-    const OFFSET_LEFT = 45; // Adjust as needed
-    const OFFSET_RIGHT = 20; // Adjust as needed
-    const OFFSET_TOP = 40; // Adjust as needed
-    const OFFSET_BOTTOM = 25; // Adjust as needed
+    function getOffsets() {
+        const img = document.querySelector('#moonboard-image');
+        const svgWidth = img ? img.offsetWidth : 0;
+        const svgHeight = img ? img.offsetHeight : 0;
+        // Use percentage for left and top offset, fixed for others
+        const OFFSET_LEFT = svgWidth * 0.10; // 10% of svg width
+        const OFFSET_RIGHT = 20;
+        const OFFSET_TOP = svgHeight * 0.06; // 7% of svg height
+        const OFFSET_BOTTOM = 25;
+        return { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM };
+    }
 
     function drawGridOverlay(selectedHolds) {
         const img = document.querySelector('#moonboard-image');
         const svg = document.querySelector('#grid-overlay');
+        const { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM } = getOffsets();
         const gridWidth = img.offsetWidth - OFFSET_LEFT - OFFSET_RIGHT;
         const gridHeight = img.offsetHeight - OFFSET_TOP - OFFSET_BOTTOM;
         const cellWidth = gridWidth / COLS;
@@ -138,6 +148,18 @@
                 document.querySelector('#generated-name').textContent = data.name;
             })
             .catch(error => console.error('Error:', error));
+    });
+
+    // Draw grid overlay after image loads
+    window.addEventListener('load', function() {
+        const img = document.querySelector('#moonboard-image');
+        if (img.complete) {
+            drawGridOverlay([]);
+        } else {
+            img.addEventListener('load', function() {
+                drawGridOverlay([]);
+            });
+        }
     });
 </script>
 {% endblock %}
