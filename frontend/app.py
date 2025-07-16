@@ -16,13 +16,27 @@ def hello_world():
 @app.route("/generate")
 def generate_boulder():
     span = int(request.args.get('span', 170))
-    boulder = setter.get_boulder(span=span)
-    similar_boulders, score = sb.similar_boulders(commons.sort_boulder_holds(boulder), sb.load_boulders_from_dataset(commons.DATASET_PATH))
-    return {
-        "boulder": ','.join(boulder),  # Convert holds to comma-separated string
-        "score": f"{score*100:.2f}%",
-        "similar": similar_boulders
-    }
+    hold_types = request.args.get('hold_types')
+    if hold_types:
+        hold_types = hold_types.split(',')
+    else:
+        hold_types = None
+    try:
+        boulder = setter.get_boulder(span=span, hold_types=hold_types)
+        similar_boulders, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
+        return {
+            "boulder": ','.join(boulder),  # Convert holds to comma-separated string
+            "score": f"{score*100:.2f}%",
+            "similar": similar_boulders,
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "boulder": '',
+            "score": '',
+            "similar": [],
+            "error": str(e)
+        }
 
 @app.route("/generate-name")
 def generate_name():

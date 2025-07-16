@@ -10,24 +10,73 @@
         <h2>Boulder generator</h2>
         <label for="span-slider" class="form-label">Climber Span: <span id="span-value">170</span> cm</label>
         <input type="range" class="form-range" min="150" max="200" step="1" value="170" id="span-slider">
+        <div class="text-center">
+            <button class="btn btn-secondary mb-2" type="button" id="toggle-filter">Show Filters</button>
+            <div class="container d-flex justify-content-center">
+                <form id="filter-section" style="display:none;">
+                    <label class="form-label">Hold types to use:</label><br>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="filter-all" checked>
+                        <label class="form-check-label" for="filter-all"><b>All</b></label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="jug" id="filter-jug"
+                            checked>
+                        <label class="form-check-label" for="filter-jug">Jug</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="microjug"
+                            id="filter-microjug" checked>
+                        <label class="form-check-label" for="filter-microjug">Microjug</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="pinch" id="filter-pinch"
+                            checked>
+                        <label class="form-check-label" for="filter-pinch">Pinch</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="pocket" id="filter-pocket"
+                            checked>
+                        <label class="form-check-label" for="filter-pocket">Pocket</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="crimp" id="filter-crimp"
+                            checked>
+                        <label class="form-check-label" for="filter-crimp">Crimp</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="slopper" id="filter-slopper"
+                            checked>
+                        <label class="form-check-label" for="filter-slopper">Slopper</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="undercling"
+                            id="filter-undercling" checked>
+                        <label class="form-check-label" for="filter-undercling">Undercling</label>
+                    </div>
+                </form>
+            </div>
+        </div>
         <button id="generate_boulder" type="button" class="btn btn-warning">Generate boulder</button>
         <div>
             <p>Generated Boulder: <span id="generated-boulder"></span></p>
             <div style="position: relative; display: inline-block;">
                 <img src="{{ image_url }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
-                <svg id="grid-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
+                <svg id="grid-overlay"
+                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
             </div>
         </div>
     </div>
     <div class="text-center d-flex flex-column align-items-center">
         <div class="text-center d-inline-block">
             <h2>Most similar problems :</h2>
-            <p id="similar-problem">Click the button to generate a boulder and see existing most similar problem here.</p>
+            <p id="similar-problem">Click the button to generate a boulder and see existing most similar problem here.
+            </p>
         </div>
         <div class="text-center d-inline-block">
             <h2>Name generator</h2>
             <button id="generate_name" type="button" class="btn btn-warning">Generate Name</button>
-            <p >Generated Name: <span id="generated-name"></span></p>
+            <p>Generated Name: <span id="generated-name"></span></p>
         </div>
     </div>
 </div>
@@ -45,9 +94,9 @@
         const svgHeight = img ? img.offsetHeight : 0;
         // Use percentage for left and top offset, fixed for others
         const OFFSET_LEFT = svgWidth * 0.10; // 10% of svg width
-        const OFFSET_RIGHT = 20;
+        const OFFSET_RIGHT = svgWidth * 0.05; // 5% of svg width
         const OFFSET_TOP = svgHeight * 0.06; // 7% of svg height
-        const OFFSET_BOTTOM = 25;
+        const OFFSET_BOTTOM = svgHeight * 0.04; // 4% of svg height
         return { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM };
     }
 
@@ -115,21 +164,31 @@
     // Update span value display
     const spanSlider = document.getElementById('span-slider');
     const spanValue = document.getElementById('span-value');
-    spanSlider.addEventListener('input', function() {
+    spanSlider.addEventListener('input', function () {
         spanValue.textContent = spanSlider.value;
     });
 
-    document.querySelector('#generate_boulder').addEventListener('click', function() {
+    document.querySelector('#generate_boulder').addEventListener('click', function () {
         const span = spanSlider.value;
-        fetch(`/generate?span=${span}`)
+        // Get selected hold types
+        const checkedTypes = Array.from(document.querySelectorAll('input[name="hold_type"]:checked')).map(cb => cb.value);
+        const params = new URLSearchParams({ span });
+        if (checkedTypes.length > 0) {
+            params.append('hold_types', checkedTypes.join(','));
+        }
+        fetch(`/generate?${params.toString()}`)
             .then(response => response.json())
             .then(data => {
+                if (data.error) {
+                    document.querySelector('#generated-boulder').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
+                    return;
+                }
                 document.querySelector('#generated-boulder').textContent = data.boulder;
                 // Format similar boulders as a user-friendly list
                 let similarList = '';
                 if (Array.isArray(data.similar) && data.similar.length > 0) {
                     similarList = '<ul class="text-start">' + data.similar.map(boulder => {
-                        return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade? '(' + boulder.userGrade + ')' : ''} by <i>${boulder.setter}</i> ${boulder.rating}⭐️/${boulder.repeats}✅. (${boulder.holds.join(', ')})</li>`;
+                        return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade ? '(' + boulder.userGrade + ')' : ''} by <i>${boulder.setter}</i> ${boulder.rating}⭐️/${boulder.repeats}✅. (${boulder.holds.join(', ')})</li>`;
                     }).join('') + '</ul>';
                 } else {
                     similarList = '<i>No similar boulders found.</i>';
@@ -139,9 +198,11 @@
                 const holds = data.boulder.split(','); // Assuming holds are comma-separated
                 drawGridOverlay(holds);
             })
-            .catch(error => console.error('Error:', error));
+            .catch(error => {
+                document.querySelector('#generated-boulder').innerHTML = `<span class='text-danger'>Error: ${error}</span>`;
+            });
     });
-    document.querySelector('#generate_name').addEventListener('click', function() {
+    document.querySelector('#generate_name').addEventListener('click', function () {
         fetch('/generate-name')
             .then(response => response.json())
             .then(data => {
@@ -150,13 +211,41 @@
             .catch(error => console.error('Error:', error));
     });
 
+    // Toggle filter section visibility
+    document.getElementById('toggle-filter').addEventListener('click', function () {
+        const filterSection = document.getElementById('filter-section');
+        if (filterSection.style.display === 'none') {
+            filterSection.style.display = 'block';
+            this.textContent = 'Hide Filters';
+        } else {
+            filterSection.style.display = 'none';
+            this.textContent = 'Show Filters';
+        }
+    });
+
+    // All checkbox logic
+    const allCheckbox = document.getElementById('filter-all');
+    const typeCheckboxes = Array.from(document.querySelectorAll('input[name="hold_type"]'));
+    allCheckbox.addEventListener('change', function() {
+        typeCheckboxes.forEach(cb => cb.checked = allCheckbox.checked);
+    });
+    typeCheckboxes.forEach(cb => {
+        cb.addEventListener('change', function() {
+            if (!cb.checked) {
+                allCheckbox.checked = false;
+            } else if (typeCheckboxes.every(c => c.checked)) {
+                allCheckbox.checked = true;
+            }
+        });
+    });
+
     // Draw grid overlay after image loads
-    window.addEventListener('load', function() {
+    window.addEventListener('load', function () {
         const img = document.querySelector('#moonboard-image');
         if (img.complete) {
             drawGridOverlay([]);
         } else {
-            img.addEventListener('load', function() {
+            img.addEventListener('load', function () {
                 drawGridOverlay([]);
             });
         }
