@@ -38,6 +38,7 @@ def load_boulders_from_dataset(file_path):
             "userGrade": boulder["userGrade"],
             "rating": boulder["userRating"],
             "repeats": boulder["repeats"],
+            "isBenchmark": boulder["isBenchmark"],
         })
     return boulder_list
 

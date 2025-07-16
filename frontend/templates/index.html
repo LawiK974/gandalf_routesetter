@@ -54,6 +54,10 @@
                             id="filter-undercling" checked>
                         <label class="form-check-label" for="filter-undercling">Undercling</label>
                     </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="micropinch" id="filter-micropinch" checked>
+                        <label class="form-check-label" for="filter-micropinch">Micropinch</label>
+                    </div>
                 </form>
             </div>
         </div>
@@ -93,10 +97,10 @@
         const svgWidth = img ? img.offsetWidth : 0;
         const svgHeight = img ? img.offsetHeight : 0;
         // Use percentage for left and top offset, fixed for others
-        const OFFSET_LEFT = svgWidth * 0.10; // 10% of svg width
+        const OFFSET_LEFT = svgWidth * 0.11; // 10% of svg width
         const OFFSET_RIGHT = svgWidth * 0.05; // 5% of svg width
         const OFFSET_TOP = svgHeight * 0.06; // 7% of svg height
-        const OFFSET_BOTTOM = svgHeight * 0.04; // 4% of svg height
+        const OFFSET_BOTTOM = svgHeight * 0.03; // 4% of svg height
         return { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM };
     }
 
@@ -145,7 +149,7 @@
             const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             circle.setAttribute('cx', cx);
             circle.setAttribute('cy', cy);
-            circle.setAttribute('r', cellWidth * 0.4);
+            circle.setAttribute('r', cellWidth * 0.5); // Adjust radius for better visibility
             circle.setAttribute('fill', 'none');
             let strokeColor;
             if (index === 0) {
@@ -156,7 +160,7 @@
                 strokeColor = '#0000FF'; // Blue for others
             }
             circle.setAttribute('stroke', strokeColor);
-            circle.setAttribute('stroke-width', '4');
+            circle.setAttribute('stroke-width', '5');
             svg.appendChild(circle);
         });
     }

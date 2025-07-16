@@ -1,11 +1,31 @@
 import os
 import numpy as np
 import csv
+import json
 SCRIPT_PATH = os.path.dirname(os.path.abspath(__file__))
 DATASET_PATH = os.path.join(SCRIPT_PATH, "../dataset/problems.json")
 HOLDS_EVAL_PATH = os.path.join(SCRIPT_PATH, "../dataset/2019.csv")
 ENVERGURE = 170  # Default span for the beta search
 INSERT_DISTANCE = 20  # cm entre les prises
+SIZE = (18, 11)  # moonboard classique
+
+GRADE_MAP = {
+    "6A+": 0,
+    "6B": 1,
+    "6B+": 2,
+    "6C": 3,
+    "6C+": 4,
+    "7A": 5,
+    "7A+": 6,
+    "7B": 7,
+    "7B+": 8,
+    "7C": 9,
+    "7C+": 10,
+    "8A": 11,
+    "8A+": 12,
+    "8B": 13,
+    "8B+": 14
+}
 
 
 def sort_boulder_holds(boulder):
@@ -33,5 +53,33 @@ def load_holds_data():
         new_dataset[hold]["can_match"] = dataset[hold]["can_match"].lower() == "true"
         new_dataset["L" + hold] = {**dataset[hold], "difficulty": dataset[hold]["difficulty_left_hand"]}
         new_dataset["R" + hold] = {**dataset[hold], "difficulty": dataset[hold]["difficulty_right_hand"]}
-        new_dataset["M" + hold] = {**dataset[hold], "difficulty": min(dataset[hold]["difficulty_right_hand"], dataset[hold]["difficulty_left_hand"])}
     return new_dataset
+
+def get_hold_name(hold: tuple[int, int]) -> str:
+    """ Returns the name of a hold given its coordinates."""
+    return chr(65 + hold[1]) + str(hold[0] + 1)
+
+def hold_name_to_pos(hold_name: str) -> tuple[int, int]:
+    """ Converts a hold name to its position on the board."""
+    col = ord(hold_name[0]) - 65
+    row = int(hold_name[1:]) - 1
+    return (row, col)
+
+def load_boulders_from_dataset():
+    """Load boulders from a JSON file."""
+    boulder_list = []
+    with open(DATASET_PATH, 'r') as file:
+        dataset = json.load(file)
+    for boulder in dataset["data"]:
+        boulder_list.append({
+            "holds": sort_boulder_holds([hold["description"] for hold in boulder["moves"]]),
+            "name": boulder["name"],
+            "setter": boulder["setby"],
+            "grade": boulder["grade"],
+            "userGrade": boulder["userGrade"],
+            "rating": boulder["userRating"],
+            "repeats": boulder["repeats"],
+            "isBenchmark": boulder["isBenchmark"],
+            "method": boulder["method"],
+        })
+    return boulder_list

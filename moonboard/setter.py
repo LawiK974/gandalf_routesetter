@@ -23,9 +23,7 @@ def get_boulder(span: int = ENVERGURE, hold_types: list = None) -> list[str]:
     boulder = get_next_hold(span=span, hold_types=hold_types, holds_data=holds_data)
     return [chr(65 + y) + str(x+1) for x,y in boulder]
 
-def get_hold_name(hold: tuple[int, int]) -> str:
-    """ Returns the name of a hold given its coordinates."""
-    return chr(65 + hold[1]) + str(hold[0] + 1)
+
 
 def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None) -> list[tuple[int, int]]:
     """ Returns the next hold to grab based on the previous hold, optionally filtering by hold_types."""
@@ -48,10 +46,11 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
                 distance =  commons.get_distance_pos(previous, new)
                 # restriction a uniquement les prises au dessus de la precedente 
                 # et a une distance inferieure à l'envergure
-                if distance <= ENVERGURE:
-                    hold_name = get_hold_name(new)
+                if distance < ENVERGURE:
+                    hold_name = commons.get_hold_name(new)
                     if hold_types and holds_data:
-                        if holds_data.get(hold_name, None)["type"] not in hold_types:
+                        undercling = 'S' in holds_data.get(hold_name, None)["orentation"]
+                        if holds_data.get(hold_name, None)["type"] not in hold_types or (undercling and 'undercling' not in hold_types):
                             continue
                     possible_holds.append(new)
                     weight_list.append(get_weight_gaussian(distance, span/2, span/4))  # poids selon la distance
