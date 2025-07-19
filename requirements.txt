@@ -2,3 +2,4 @@ numpy
 scipy
 flask
 unique-names-generator
+torch

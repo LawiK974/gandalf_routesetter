@@ -1,6 +1,8 @@
 import json
 import sys
 import csv
+import commons
+
 
 """ Gandalf Beta finder
 Hand rules :
@@ -80,35 +82,41 @@ def find_beta_next_hold(boulder: list, beta_list: list, holds_data: dict, span: 
     for beta in beta_list:
         last_mouv = beta[-1]  # Get the last hold in the current beta
         last_hold = last_mouv[1:]  # Get the hold name without the hand prefix
-        if len(beta) > len(boulder) * 2:
-            continue  # Skip betas that are too long (more than twice the number of holds in the boulder)
+        idx, previous_other_hand = find_previous_other_hand_mouv(beta)  # Find the previous move with the other hand
+        if len(beta) > len(boulder) * 2 or idx < len(beta) - 3:
+            # Skip betas that are too long (more than twice the number of holds in the boulder)
+            # skip beta with more than 2 bumps in a row (this is a heuristic to avoid too many bumps in the beta)
+            continue
         elif last_hold == boulder[-1]:
             next_beta_list.append(beta)
             continue  # If the last hold is the last hold of the boulder, add the beta as is and skip to the next beta
-        last_last_mouv = beta[-2]  # Get the last_last hold in the current beta
-
         # Get the next possible holds based on the last hold
         next_holds = filter_not_already_used_holds(boulder, beta)  # Filter out holds already used with both hands in the beta
         new_betas = []
         for next_hold in next_holds:
             can_match = holds_data[next_hold]['can_match']  # Check if the next hold can be matched
             orientation = holds_data[next_hold]['orientation']  # Get the orientation of the next hold
-            type_ = holds_data[next_hold]['type']  # Get the type of the next hold
-            for mouv, other_mouv in [(last_mouv, last_last_mouv), (last_last_mouv, last_mouv)]:
-                hand = mouv[0]  # Get the hand used for the current move
+            # type_ = holds_data[next_hold]['type']  # Get the type of the next hold
+            for mouv, other_mouv in [(last_mouv, previous_other_hand), (previous_other_hand, last_mouv)]:
                 other_hand = other_mouv[0]
                 hold = mouv[1:]
                 other_hold = other_mouv[1:]
                 next_mouv = other_hand + next_hold  # Create the next move with the other hand and the next hold
                 if (
+                    # beta + [next_mouv] in new_betas
+                    # or next_mouv in beta  # If the next move is already in the beta, skip it
                     commons.get_distance(hold, next_hold) > span
+                    or commons.get_distance(other_hold, next_hold) > span
+                    or int(next_hold[1:]) <= min(int(other_hold[1:]), int(hold[1:]))  # If the next hold is lower than the last holds, skip it
                 ):
                     continue  # If the next hold is too far, skip it
-                elif next_mouv not in beta and (  # Check if the next move is not already in the beta
-                    (can_match and is_match(next_mouv, mouv)) # If the next hold can be matched and is not already used by the other hand
-                    or (commons.get_distance(hold, next_hold) < span / 2 and is_crossing(next_mouv, mouv) and "S" not in orientation) # If the next hold is close enough to the last hold and is a crossing move and the orientation is not "south" (undercling)
-                    or (is_bump(next_mouv, other_mouv) and int(next_hold[1:]) >= int(other_hold[1:])) # If the next hold is a bump move and upper than the last hold 
-                    or (not is_crossing(next_mouv, mouv) and not is_match(next_mouv, mouv) and not is_bump(next_mouv, other_mouv)) # If the next hold is not a crossing move, not a match and not a bump
+                elif (
+                    (commons.get_distance(hold, next_hold) < span / 3 and is_crossing(next_mouv, mouv) and "S" not in orientation) or not is_crossing(next_mouv, mouv)  # If the next hold is close enough to the last hold and is a crossing move and the orientation is not "south" (undercling)
+                ) and (  # Check if the next move is not already in the beta
+                    (can_match and is_match(next_mouv, mouv)) or not is_match(next_mouv, mouv)  # If the next hold can be matched and is not already used by the same hand
+                ) and ( # If the next hold can be matched and is not already used by the other hand
+                    not is_bump(next_mouv, last_mouv)
+                    or (is_bump(next_mouv, last_mouv) and int(next_hold[1:]) >= int(other_hold[1:])) # If the next hold is a bump move and upper than the last hold 
                 ):
                     new_betas.append(beta + [next_mouv])
             # if no new betas were found, we can skip this beta as it's not valid (cannot reach the next hold)
@@ -134,8 +142,8 @@ def beta_listing(boulder: list, holds_data: dict, span: int = 170) -> list[list[
     ]
     sorted_start_holds = sorted(start_holds, key=lambda x: x[1:])  # Sort holds by their vertical position (1,2,3, etc.)
     if holds_data[sorted_start_holds[0]]['can_match']:
-        beta_list.append(['L' + start_holds[0], 'R' + start_holds[0]]),  # les deux mains sur la première prise dans un sens
-        beta_list.append(['R' + start_holds[0], 'L' + start_holds[0]]),  # les deux mains sur la première prise dans l'autre sens
+        beta_list.append(['L' + sorted_start_holds[0], 'R' + sorted_start_holds[0]]),  # les deux mains sur la première prise dans un sens
+        beta_list.append(['R' + sorted_start_holds[0], 'L' + sorted_start_holds[0]]),  # les deux mains sur la première prise dans l'autre sens
     return find_beta_next_hold(boulder, beta_list, holds_data, span=span)
 
 
@@ -151,32 +159,46 @@ def filter_only_finishing_beta(beta_list: list, boulder: list):
 def possible_betas(boulder, holds_data, span=170) -> list[list[str]]:
     """ Returns a list of possible beta for the boulder problem."""
     beta_list = beta_listing(boulder, holds_data, span=span)
-    filtered_finished_betas = list(filter_only_finishing_beta(beta_list, boulder))
-    filtered_betas = evaluate_betas_difficulty(filtered_finished_betas, holds_data)  # Evaluate the difficulty of each beta
+    # filtered_finished_betas = list(filter_only_finishing_beta(beta_list, boulder))
+    filtered_betas = evaluate_betas_difficulty(beta_list, holds_data)  # Evaluate the difficulty of each beta
     return filtered_betas
 
-def best_betas(betas: list[dict], max_betas: int = 3) -> list[dict]:
+def best_betas(betas: list[dict], max_betas: int | None = None) -> list[dict]:
     """ Returns the best beta based on the difficulty score."""
     if not betas:
         return []
-    min_max_difficulty = min(betas, key=lambda x: x['max'])['max']  # Get the minimum maximum difficulty in the betas
+    min_max_difficulty = min([beta['max'] for beta in betas])  # Get the minimum maximum difficulty in the betas
     betas = list(filter(lambda x: x['max'] == min_max_difficulty, betas)) # Filter betas with the minimum maximum difficulty
-    min_number_max_difficulty = min(betas, key=lambda x: x['mouv_at_max'])['mouv_at_max']  # Get the minimum number of moves at maximum difficulty
+    min_number_max_difficulty =  min([beta['mouv_at_max'] for beta in betas])  # Get the minimum number of moves at maximum difficulty
     betas = list(filter(lambda x: x['mouv_at_max'] == min_number_max_difficulty, betas)) # Filter betas with the minimum maximum difficulty
-    min_bumps = min(betas, key=lambda x: x['bumps'])['bumps']  # then Get the minimum number of bumps in the beta
-    betas = list(filter(lambda x: x['bumps'] == min_bumps, betas))  # then filter betas with the minimum number of bumps
-    min_distance = min(betas, key=lambda x: x['max_distance'])['max_distance']  # Get the minimum maximum distance in the betas
+    min_distance = min([beta['max_distance'] for beta in betas]) # Get the minimum maximum distance in the betas
     betas = list(filter(lambda x: x['max_distance'] == min_distance, betas))  # then filter betas with the minimum maximum distance
-    min_matches = min(betas, key=lambda x: x['matches'])['matches']  # then Get the minimum number of matches in the betas
-    betas = list(filter(lambda x: x['matches'] == min_matches, betas))  # then filter betas with the minimum number of matches
-    min_crosses = min(betas, key=lambda x: x['crosses'])['crosses']  # then Get the minimum number of crosses in the beta
+    min_mean = min([beta['mean'] for beta in betas])  # then Get the minimum number of crosses in the beta
+    betas = list(filter(lambda x: x['mean'] == min_mean, betas)) # Filter betas with the minimum maximum difficulty
+    min_mean_distance = min([beta['mean_distance'] for beta in betas])  # then Get the minimum number of crosses in the beta
+    betas = list(filter(lambda x: x['mean_distance'] == min_mean_distance, betas)) # Filter betas with the minimum maximum difficulty
+    # min_sum = min([beta['sum'] for beta in betas])  # then Get the minimum number of crosses in the beta
+    # betas = list(filter(lambda x: x['sum'] == min_sum, betas)) # Filter betas with the minimum maximum difficulty
+    # min_bumps =  min([beta['bumps'] for beta in betas])  # then Get the minimum number of bumps in the beta
+    # betas = list(filter(lambda x: x['bumps'] == min_bumps, betas))  # then filter betas with the minimum number of bumps
+    # min_matches = min([beta['matches'] for beta in betas])  # then Get the minimum number of matches in the betas
+    # betas = list(filter(lambda x: x['matches'] == min_matches, betas))  # then filter betas with the minimum number of matches
+    # min_crosses = min([beta['crosses'] for beta in betas])  # then Get the minimum number of crosses in the beta
     # betas = filter(lambda x: x['crosses'] == min_crosses, betas)
-    print(f"Found {len(betas)} betas with most difficult hand {min_max_difficulty}, matches {min_matches}, crosses {min_crosses}, max distant mouv {min_distance}, and moves at max difficulty {min_number_max_difficulty}")
-    return betas[:min(len(betas), max_betas)]  # Return the top max_betas betas
+    # print(f"Found {len(betas)} betas with most difficult hand {min_max_difficulty}, matches {min_matches}, max distant mouv {min_distance}, and moves at max difficulty {min_number_max_difficulty}")
+    return betas[:min(len(betas), max_betas or len(betas))]  # Return the top max_betas betas
 
 ###################
 # Evaluate beta difficulty
 ###################
+
+def find_previous_other_hand_mouv(beta: list) -> str | None:
+    """ Finds the previous move with the other hand in the beta."""
+    mouv = beta[-1]  # Get the last move in the beta
+    for idx, previous_mouv in reversed(list(enumerate(beta[:-1]))):  # Exclude the last move as it is the current move
+        if previous_mouv[0] != mouv[0]:  # Check if the hand is different
+            return idx, previous_mouv  # Return the previous move with the other hand
+    return None, None  # If no previous move with the other hand is found, return None
 
 def evaluate_beta_difficulty(beta: list, holds_data: dict) -> dict:
     """ Evaluates the difficulty of a beta based on the holds used."""
@@ -191,11 +213,14 @@ def evaluate_beta_difficulty(beta: list, holds_data: dict) -> dict:
         "bumps": 0,
         "max_distance": 0,
         "mouvs_at_max_distance": 0,
+        "sum_distance": 0,
     }
     for index, mouv in enumerate(beta):
         hold_data = holds_data[mouv]  # Get the hold data without the hand prefix
         difficulty = int(hold_data['difficulty'])
         previous_mouv = beta[index - 1] if index > 0 else None
+        idx, previous_other_hand = find_previous_other_hand_mouv(beta[:index+1])  # Find the previous move with the other hand
+        distance = round(commons.get_distance(previous_other_hand[1:], mouv[1:])) if previous_other_hand else 0  # Get the distance between the previous hold and the current hold
         if is_match(mouv, previous_mouv):
             score["matches"] += 1
         if is_crossing(mouv, previous_mouv):
@@ -203,18 +228,19 @@ def evaluate_beta_difficulty(beta: list, holds_data: dict) -> dict:
         if is_bump(mouv, previous_mouv):
             score["bumps"] += 1
         score["sum"] += difficulty
+        score['sum_distance'] += distance  # Add the distance to the sum
         if difficulty > score["max"]:
             score["max"] = difficulty
             score["mouv_at_max"] = 1
         elif difficulty == score["max"]:
             score["mouv_at_max"] += 1
-        max_distance = commons.get_distance(previous_mouv[1:], mouv[1:])  if previous_mouv else 0# Get the distance between the previous hold and the current hold
-        if max_distance > score["max_distance"]:
-            score["max_distance"] = max_distance
+        if distance > score["max_distance"]:
+            score["max_distance"] = distance
             score["mouvs_at_max_distance"] = 1
-        elif max_distance == score["max_distance"]:
+        elif distance == score["max_distance"]:
             score["mouvs_at_max_distance"] += 1
-    score["mean"] = float(score["sum"]) / score["mouvs"] if score["mouvs"] > 0 else 0.0
+    score["mean"] = round(float(score["sum"]) / score["mouvs"]) if score["mouvs"] > 0 else 0
+    score["mean_distance"] = round(float(score["sum_distance"]) / score["mouvs"]) if score["mouvs"] > 0 else 0
     return score
 
 def evaluate_betas_difficulty(betas: list, holds_data: dict) -> list[dict]:
@@ -230,15 +256,13 @@ def main(boulder: str):
     holds_data = commons.load_holds_data()
     betas = possible_betas(boulder, holds_data, span=180)
     best_betas_list = best_betas(betas, max_betas=3)  # Get the best betas based on the difficulty score
+    print(f"Iterations {iteration}: {len(betas)} betas found, {len(best_betas_list)} best betas found")
     return best_betas_list
 
     
 
 if __name__ == "__main__":
-    import commons
     if len(sys.argv) != 2:
-        print("Usage: python similar_boulder.py <boulder>")
+        print("Usage: python beta.py <boulder>")
         sys.exit(1)
     print(main(*sys.argv[1:]))
-else:
-    from . import commons

@@ -45,9 +45,9 @@
                         <label class="form-check-label" for="filter-crimp">Crimp</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="hold_type" value="slopper" id="filter-slopper"
+                        <input class="form-check-input" type="checkbox" name="hold_type" value="sloper" id="filter-sloper"
                             checked>
-                        <label class="form-check-label" for="filter-slopper">Slopper</label>
+                        <label class="form-check-label" for="filter-sloper">sloper</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" name="hold_type" value="undercling"
@@ -154,6 +154,8 @@
             let strokeColor;
             if (index === 0) {
                 strokeColor = '#00FF00'; // Green for first
+            } else if (index === 1 && row < 6) {
+                strokeColor = '#00FF00'; // Green for second if row < 6
             } else if (index === selectedHolds.length - 1) {
                 strokeColor = '#FF0000'; // Red for last
             } else {

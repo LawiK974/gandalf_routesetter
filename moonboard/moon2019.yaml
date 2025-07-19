@@ -1,8 +1,0 @@
-# 1 à 15
-A1:
-  type: crimp
-  texture: resine
-  orientation: SO
-  difficulty_left_hand: 6
-  difficulty_right_hand: 10
-  can_match: false
