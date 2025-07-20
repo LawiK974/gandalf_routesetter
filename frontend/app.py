@@ -76,10 +76,13 @@ def predict_grade():
     model_files = [f for f in os.listdir(model_dir) if f.endswith('.pth')]
     if not model_files:
         return {"error": "No trained model found."}, 500
-    model_files.sort(key=lambda x: float(x.split('_')[-1].replace('.pth', '')), reverse=True)  # get the most recently created model
-    print(f"Using model: {model_files[0]}")
+    simple_model = "beta_classifier-lr_0.001-epochs_50-hs_128-acc_68.84-loss_0.1168.pth"
+    complex_model = "beta_classifier-lr_0.001-epochs_250-hs_512-acc_81.43-loss_0.160.pth"
+    # model_files.sort(key=lambda x: float(x.split('_')[-1].replace('.pth', '')), reverse=True)  # get the most recently created model
+    # print(f"Using model: {model_files[0]}")
     # model_files.sort(key=lambda x: os.path.getctime(os.path.join(model_dir, x)), reverse=True)  # get the most recently created model
-    model_path = os.path.join(model_dir, model_files[0])
+    simple_model = os.path.join(model_dir, simple_model)
+    complex_model = os.path.join(model_dir, complex_model)
     # Build a fake boulder dict for prediction
     start = boulder[:2] if int(boulder[2][1:]) < 6 else boulder[:1]
     boulder_dict = {
@@ -95,8 +98,15 @@ def predict_grade():
         # "isBenchmark": False
     }
     try:
-        pred_grade, prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=model_path)
-        return {"grade": pred_grade, "probability": prob_percent, "error": None}
+        simple_pred_grade, simple_prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=simple_model)
+        complex_pred_grade, complex_prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=complex_model)
+        return {
+            "simple_pred": simple_pred_grade,
+            "simple_probability": simple_prob_percent,
+            "complex_pred": complex_pred_grade,
+            "complex_probability": complex_prob_percent,
+            "error": None
+        }
     except Exception as e:
         raise e
         return {"grade": '', "probability": '', "error": str(e)}, 500

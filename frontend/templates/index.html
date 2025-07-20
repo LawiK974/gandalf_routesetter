@@ -66,7 +66,7 @@
         <button id="predict_grade" type="button" class="btn btn-success ms-2">Predict Grade</button>
         <div>
             <p>Generated Boulder: <span id="generated-boulder"></span></p>
-            <p>Predicted Grade: <span id="predicted-grade"></span></p>
+            <p>Predicted Grade: <br><span id="predicted-grade"></span></p>
             <div id="beta-result" class="mt-2"></div>
             <div style="position: relative; display: inline-block;">
                 <img src="{{ image_url }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
@@ -190,6 +190,7 @@
         fetch(`/generate?${params.toString()}`)
             .then(response => {
                 document.getElementById('beta-result').innerHTML = ""
+                document.getElementById('predicted-grade').innerHTML = ""
                 return response.json()
             })
             .then(data => {
@@ -387,7 +388,9 @@
             if (data.error) {
                 document.getElementById('predicted-grade').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
             } else {
-                document.getElementById('predicted-grade').innerHTML = `${data.grade} (${data.probability.toFixed(2)}%)`;
+                let html = `<b>Simple model:</b> ${data.simple_pred} (${Number(data.simple_probability).toFixed(2)}%)<br>`;
+                html += `<b>Complex model:</b> ${data.complex_pred} (${Number(data.complex_probability).toFixed(2)}%)`;
+                document.getElementById('predicted-grade').innerHTML = html;
             }
         })
         .catch(error => {

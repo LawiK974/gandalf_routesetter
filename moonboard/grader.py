@@ -7,12 +7,12 @@ import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import sys
-import matplotlib.pyplot as plt
 import json
-import sklearn.metrics as skmetrics
-import seaborn as sns
 try:
     import commons
+    import sklearn.metrics as skmetrics
+    import seaborn as sns
+    import matplotlib.pyplot as plt
 except:
     from . import commons
 from collections import Counter
@@ -218,7 +218,8 @@ class BoulderClassifier(nn.Module):
         return out
 
 
-def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1):
+def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1, hidden_size=128):
+    outputs_suffix = f"lr_{learning_rate}-epochs_{num_epochs}-hs_{hidden_size}"
     train_loader, val_loader = loaders
     # Define loss function
     # Using BCEWithLogitsLoss for binary classification with logits output
@@ -286,7 +287,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     plt.ylabel('True Grade')
     plt.title('Confusion Matrix (Validation)')
     plt.tight_layout()
-    plt.savefig(f"confusion_matrix_val-lr_{learning_rate}-wdf_{weight_decay_factor}-acc_{accuracy:.2f}.png")
+    plt.savefig(f"confusion_matrix_val-{outputs_suffix}-acc_{accuracy:.2f}-{avg_val_loss:.4f}.png")
     # plt.show()
     plt.close()
 
@@ -300,7 +301,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     plt.title('Training and Validation Loss Evolution')
     plt.grid(True)
     plt.legend()
-    plt.savefig(f"training_val_loss_lr_{learning_rate}-wdf_{weight_decay_factor}-acc_{accuracy:.2f}.png")
+    plt.savefig(f"training_val_loss-{outputs_suffix}-acc_{accuracy:.2f}_{avg_val_loss:.4f}.png")
     # plt.show()
     plt.close()
     min_loss = min(val_loss)
@@ -308,7 +309,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     max_accuracy = val_accuracy[min_loss_index]  # Use max accuracy for model saving
     print(f"Training complete. Best validation loss: {min_loss:.4f} with accuracy {max_accuracy:.2f}% at epoch {min_loss_index + 1}")
     # Save the model
-    model_path = f"beta_classifier-lr_{learning_rate}-wdf_{weight_decay_factor}-acc_{accuracy:.2f}.pth"
+    model_path = f"beta_classifier-{outputs_suffix}-acc_{accuracy:.2f}-loss_{avg_val_loss:.4f}.pth"
     torch.save(model.state_dict(), model_path)
     print(f"Model saved as {model_path}")
 
@@ -347,14 +348,22 @@ def prediction2labelindex(pred: np.ndarray) -> int:
 # Predicting Boulder Grade
 ######################
 
-def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_data=None):
+def predict_boulder_grade(boulder, model_path, holds_data=None):
     """
     Given a boulder dict, loads the saved model and returns the predicted grade string.
     """
     # Vectorize boulder
     boulder_vector = BoulderDataset.vectorize_boulder(boulder, holds_data)
     x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 8)
-    # Load model
+    # Extract hidden_size from model_path if present
+    import re
+    hidden_size = 128  # default
+    match = re.search(r"-hs_(\d+)", model_path)
+    if match:
+        hidden_size = int(match.group(1))
+    # Create model with correct hidden_size
+    print(f"Loading model from {model_path} with hidden size {hidden_size}")
+    model = BoulderClassifier(input_size=8, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
@@ -384,17 +393,19 @@ def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_d
 ################
 
 def main(phase, boulder_json = None, model_path = None, boulder_object = None):
-    model = BoulderClassifier(input_size=8, hidden_size=512, num_classes=len(GRADE_DICT))
-    model.to(device)
+    hidden_size = 128
+    num_epochs = 50
     holds_data = commons.load_holds_data()
     if phase == "train":
+        model = BoulderClassifier(input_size=8, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
+        model.to(device)
         dataloader = initialize_dataset(batch_size=64, holds_data=holds_data)
-        train_model(model, dataloader, num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1)     
+        train_model(model, dataloader, num_epochs=num_epochs, learning_rate=1e-3, weight_decay_factor=0.1, hidden_size=hidden_size)     
     elif phase == "predict": 
         boulder = boulder_object
         if boulder_json:  
             boulder = json.load(boulder_json)
-        pred_grade, prob_percent = predict_boulder_grade(model, boulder, model_path, holds_data)
+        pred_grade, prob_percent = predict_boulder_grade(boulder, model_path, holds_data)
         if boulder_object:
             return pred_grade, prob_percent
         print(f"Predicted grade: {pred_grade}, Probability: {prob_percent:.2f}%")

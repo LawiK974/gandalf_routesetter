@@ -2,3 +2,9 @@ __pycache__
 Containerfile
 Readme.md
 deployment.yaml
+.venv
+*.pyc
+*.pyo
+*.pyd
+*.png
+*.jpg

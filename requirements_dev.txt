@@ -2,3 +2,6 @@ numpy
 scipy
 flask
 unique-names-generator
+matplotlib
+scikit-learn
+seaborn

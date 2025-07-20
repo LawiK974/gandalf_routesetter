@@ -1,4 +1,7 @@
 FROM python:3.12-alpine
+# Set environment variables.
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
 WORKDIR /home/app
 COPY . .
@@ -6,6 +9,7 @@ COPY . .
 # Install dependencies 
 RUN apk add --no-cache curl && \
     pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt && \
 # permissions and nonroot user for tightened security
     adduser -D nonroot && \
