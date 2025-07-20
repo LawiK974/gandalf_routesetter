@@ -189,11 +189,15 @@ class BoulderClassifier(nn.Module):
         self.num_classes = num_classes
 
         # LSTM layer
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        # self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=2, dropout=0.2, bidirectional=True)
         # Fully connected layer to map LSTM output to class probabilities
         # num_classes - 1 because we are predicting the number of thresholds passed, not the class itself
         # e.g. for 15 classes, we have 14 thresholds to predict
-        self.fc = nn.Linear(hidden_size, num_classes - 1)
+        # self.fc = nn.Linear(hidden_size, num_classes - 1)
+
+        # Using a single LSTM layer with bidirectional=True
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=2, batch_first=True, bidirectional=True)
+        self.fc = nn.Linear(2 * hidden_size, num_classes - 1)  # 2x because of both directions
 
     def forward(self, x):
         out, _ = self.lstm(x)
@@ -204,7 +208,7 @@ class BoulderClassifier(nn.Module):
 def ordinal_regression(predictions: list[list[float]], targets: list[float]):
     """Ordinal regression with encoding as in https://arxiv.org/pdf/0704.1028.pdf"""
 
-    return nn.MSELoss(reduction='none')(predictions, targets).sum(axis=1)
+    return torch.pow(nn.MSELoss(reduction='none')(predictions, targets).sum(axis=1), 2).mean()
 
 
 def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs=100, learning_rate=1e-3):
@@ -224,7 +228,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     # This is a common practice in deep learning to prevent overfitting
     # and encourage generalization.
     # It helps to regularize the model by penalizing large weights.
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
+    optimizer = optim.AdamW (model.parameters(), lr=learning_rate, weight_decay=0.01 * learning_rate)
 
     train_loss, val_loss = [], []
     for epoch in range(num_epochs):
@@ -282,8 +286,8 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
 
     # Plot loss evolution
     plt.figure()
-    plt.plot(range(1, num_epochs+1), train_loss, marker='o', label='Train Loss')
-    plt.plot(range(1, num_epochs+1), val_loss, marker='x', label='Valid Loss')
+    plt.plot(range(61, num_epochs+1), train_loss[60:], marker='o', label='Train Loss')
+    plt.plot(range(61, num_epochs+1), val_loss[60:], marker='x', label='Valid Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training and Validation Loss Evolution')
@@ -310,8 +314,8 @@ def initialize_dataset(batch_size=128, holds_data=None):
     train_size = int(0.75 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     print(f"Dataset initialized with {len(dataset)} samples. Train: {train_size}, Val: {val_size}")
     return train_loader, val_loader
 
@@ -369,9 +373,9 @@ def main(phase, boulder_json = None, model_path = None):
     model.to(device)
     holds_data = commons.load_holds_data()
     if phase == "train":
-        dataloader = initialize_dataset(batch_size=128, holds_data=holds_data)
-        train_model(model, dataloader, num_epochs=100, learning_rate=1e-3)     
-    elif phase == "predict":   
+        dataloader = initialize_dataset(batch_size=2048, holds_data=holds_data)
+        train_model(model, dataloader, num_epochs=120, learning_rate=5e-4)
+    elif phase == "predict":
         if len(sys.argv) < 3:
             print("Usage: python grader.py predict <boulder_json> <model_path>")
             return
