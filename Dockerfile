@@ -1,12 +1,12 @@
-FROM python:3-alpine
+FROM python:3.12-alpine
 
 WORKDIR /home/app
 COPY . .
 
 # Install dependencies 
-RUN apk add curl && \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt && \
+RUN apk add --no-cache curl && \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
 # permissions and nonroot user for tightened security
     adduser -D nonroot && \
     chown -R nonroot:nonroot /home/app && \

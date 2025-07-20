@@ -379,7 +379,7 @@ def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_d
 ################
 
 def main(phase, boulder_json = None, model_path = None):
-    model = BoulderClassifier(input_size=8, hidden_size=128, num_classes=len(GRADE_DICT))
+    model = BoulderClassifier(input_size=8, hidden_size=256, num_classes=len(GRADE_DICT))
     model.to(device)
     holds_data = commons.load_holds_data()
     if phase == "train":
