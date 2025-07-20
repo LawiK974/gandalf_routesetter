@@ -304,7 +304,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     # plt.show()
     plt.close()
     min_loss = min(val_loss)
-    min_loss_index = np.argmin(accuracy)  # +1 because epochs are 1-indexed
+    min_loss_index = np.argmin(val_loss)  # +1 because epochs are 1-indexed
     max_accuracy = val_accuracy[min_loss_index]  # Use max accuracy for model saving
     print(f"Training complete. Best validation loss: {min_loss:.4f} with accuracy {max_accuracy:.2f}% at epoch {min_loss_index + 1}")
     # Save the model
