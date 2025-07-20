@@ -15,6 +15,7 @@ try:
     import commons
 except:
     from . import commons
+from collections import Counter
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ##########################################
@@ -24,20 +25,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # for why this encoding is used (CORAL method)
 # The grades are encoded as a binary vector where each position corresponds to a threshold passed.
 GRADE_DICT = {
-    "6A+":[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "6B": [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "6B+":[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "6C": [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "6C+":[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "7A": [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "7A+":[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-    "7B": [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-    "7B+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
-    "7C": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-    "7C+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
-    "8A": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
-    "8A+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
-    "8B": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    "6A+":[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "6B": [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "6B+":[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "6C": [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "6C+":[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    "7A": [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+    "7A+":[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+    "7B": [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+    "7B+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+    "7C": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+    "7C+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+    "8A": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    "8A+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    # "8B": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
     # "8B+":[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
 }
 
@@ -107,32 +108,49 @@ def filter_dataset(dataset):
     filtered_dataset = list(filter(lambda boulder: (
         boulder['method'] == "Feet follow hands"
         and len(boulder['holds']) >= 2 # at least 2 holds
+        and boulder["grade"] not in ["8B", "8B+"] # ignore 8B+ grades
+        and boulder["userGrade"] not in ["8B", "8B+"] # ignore 8B+ grades
         and (
             boulder['setter'] in list_benchmark_setters # benchmark setters
             or (
                 boulder["userGrade"] is not None # user grade is set
-                and boulder["grade"] != "8B+" # ignore 8B+ grades
-                and boulder["userGrade"] != "8B+" # ignore 8B+ grades
-                and not has_too_much_holds_together(boulder['holds'])
-                and boulder["rating"] >= 3
+                and (not has_too_much_holds_together(boulder['holds']) or (boulder["userGrade"] or boulder["grade"]) > "6C+")
+                and boulder["rating"] > (3 if (boulder["userGrade"] or boulder["grade"]) < "6C+" else 1)
             )
         )
     ), dataset))
-    return filtered_dataset
+    grade_counts = Counter(boulder["userGrade"] or boulder["grade"] for boulder in filtered_dataset)
+    print("Number of boulders per grade (before oversampling):")
+    for grade in sorted(grade_counts.keys()):
+        print(f"{grade}: {grade_counts[grade]}")
+    mean_nb_boulder_per_grade = np.mean(list(grade_counts.values()))
+    print(f"Mean number of boulders per grade: {mean_nb_boulder_per_grade:.2f}")
+    oversampled_dataset = oversample_dataset_by_grade(filtered_dataset)
+    grade_counts_after = Counter(b["userGrade"] or b["grade"] for b in oversampled_dataset)
+    print("Number of boulders per grade (after oversampling):")
+    for grade in sorted(grade_counts_after.keys()):
+        print(f"{grade}: {grade_counts_after[grade]}")
+    return oversampled_dataset
 
-# def get_betas_dataset(dataset, holds_data=None):
-#     betas_dataset = []
-#     for idx,boulder in enumerate(dataset):
-#         betas = possible_betas(boulder["holds"], holds_data, span=175)
-#         best_beta = best_betas(betas, max_betas=1)
-#         if best_beta:
-#             betas_dataset.append({
-#                 **boulder,
-#                 "beta": best_beta[0]
-#             })
-#         print(f"Processed {idx+1}/{len(dataset)} boulders for betas.")
-#     # raise ValueError("Beta dataset generation completed.")
-#     return betas_dataset
+# New function: oversample the dataset by duplicating samples from minority classes
+def oversample_dataset_by_grade(dataset):
+    from collections import defaultdict
+    import random
+    grade_to_boulders = defaultdict(list)
+    for b in dataset:
+        grade = b["userGrade"] or b["grade"]
+        grade_to_boulders[grade].append(b)
+    max_count = max(len(lst) for lst in grade_to_boulders.values())
+    oversampled = []
+    for grade, boulders in grade_to_boulders.items():
+        if len(boulders) < max_count:
+            # Sample with replacement to reach max_count
+            oversampled.extend(boulders)
+            oversampled.extend(random.choices(boulders, k=max_count - len(boulders)))
+        else:
+            oversampled.extend(boulders)
+    random.shuffle(oversampled)
+    return oversampled
 
 class BoulderDataset(Dataset):
     def __init__(self, dataset, holds_data=None):
@@ -200,12 +218,6 @@ class BoulderClassifier(nn.Module):
         return out
 
 
-# def ordinal_regression(predictions: list[list[float]], targets: list[float]):
-#     """Ordinal regression with encoding as in https://arxiv.org/pdf/0704.1028.pdf"""
-
-#     return nn.MSELoss(reduction='none')(predictions, targets).sum(axis=1)
-
-
 def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1):
     train_loader, val_loader = loaders
     # Define loss function
@@ -221,7 +233,8 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     # This is a common practice in deep learning to prevent overfitting
     # and encourage generalization.
     # It helps to regularize the model by penalizing large weights.
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay_factor*learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
+    # optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay_factor*learning_rate)
 
     train_loss, val_loss = [], []
     for epoch in range(num_epochs):
@@ -290,7 +303,10 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     plt.savefig(f"training_val_loss_lr_{learning_rate}-wdf_{weight_decay_factor}-acc_{accuracy:.2f}.png")
     # plt.show()
     plt.close()
-
+    min_loss = min(val_loss)
+    min_loss_index = np.argmin(accuracy)  # +1 because epochs are 1-indexed
+    max_accuracy = accuracy[min_loss_index]  # Use max accuracy for model saving
+    print(f"Training complete. Best validation loss: {min_loss:.4f} with accuracy {max_accuracy:.2f}% at epoch {min_loss_index + 1}")
     # Save the model
     model_path = f"beta_classifier-lr_{learning_rate}-wdf_{weight_decay_factor}-acc_{accuracy:.2f}.pth"
     torch.save(model.state_dict(), model_path)
@@ -363,12 +379,12 @@ def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_d
 ################
 
 def main(phase, boulder_json = None, model_path = None):
-    model = BoulderClassifier(input_size=8, hidden_size=128, num_classes=15)
+    model = BoulderClassifier(input_size=8, hidden_size=128, num_classes=len(GRADE_DICT))
     model.to(device)
     holds_data = commons.load_holds_data()
     if phase == "train":
-        dataloader = initialize_dataset(batch_size=128, holds_data=holds_data)
-        train_model(model, dataloader, num_epochs=100, learning_rate=1e-3, weight_decay_factor=0)     
+        dataloader = initialize_dataset(batch_size=64, holds_data=holds_data)
+        train_model(model, dataloader, num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1)     
     elif phase == "predict":   
         if len(sys.argv) < 3:
             print("Usage: python grader.py predict <boulder_json> <model_path>")
