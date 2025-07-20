@@ -63,8 +63,10 @@
         </div>
         <button id="generate_boulder" type="button" class="btn btn-warning">Generate boulder</button>
         <button id="get_beta" type="button" class="btn btn-info ms-2">Get Beta</button>
+        <button id="predict_grade" type="button" class="btn btn-success ms-2">Predict Grade</button>
         <div>
             <p>Generated Boulder: <span id="generated-boulder"></span></p>
+            <p>Predicted Grade: <span id="predicted-grade"></span></p>
             <div id="beta-result" class="mt-2"></div>
             <div style="position: relative; display: inline-block;">
                 <img src="{{ image_url }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
@@ -367,6 +369,30 @@
                 drawGridOverlay([]);
             });
         }
+    });
+    document.querySelector('#predict_grade').addEventListener('click', function () {
+        const boulderStr = document.querySelector('#generated-boulder').textContent;
+        if (!boulderStr) {
+            document.getElementById('predicted-grade').innerHTML = `<span class='text-danger'>No boulder generated.</span>`;
+            return;
+        }
+        const holds = boulderStr.split(',').map(h => h.trim()).filter(Boolean);
+        fetch('/predict-grade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ boulder: holds })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('predicted-grade').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
+            } else {
+                document.getElementById('predicted-grade').innerHTML = `${data.grade} (${data.probability.toFixed(2)}%)`;
+            }
+        })
+        .catch(error => {
+            document.getElementById('predicted-grade').innerHTML = `<span class='text-danger'>Error: ${error}</span>`;
+        });
     });
 </script>
 {% endblock %}

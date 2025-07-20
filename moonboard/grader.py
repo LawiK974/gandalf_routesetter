@@ -337,6 +337,9 @@ def prediction2labelindex(pred: np.ndarray) -> int:
     [0.9, 0.9, 0.9, 0.1] -> 2
     etc.
     """
+    pred = np.asarray(pred)
+    if pred.ndim == 1:
+        pred = pred.reshape(1, -1)
     return (pred > 0.5).cumprod(axis=1).sum(axis=1)
 
 
@@ -352,7 +355,7 @@ def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_d
     boulder_vector = BoulderDataset.vectorize_boulder(boulder, holds_data)
     x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 8)
     # Load model
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
     with torch.no_grad():
@@ -360,7 +363,9 @@ def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_d
         probs = torch.sigmoid(logits).cpu().numpy()[0]
         # CORAL: find the number of thresholds passed (i.e., how many outputs > 0.5)
         pred_idx = prediction2labelindex(probs)
-        # Map index to grade
+        # pred_idx is a 1-element array, extract scalar
+        if isinstance(pred_idx, np.ndarray):
+            pred_idx = int(pred_idx[0])
         grade_keys = list(GRADE_DICT.keys())
         pred_grade = grade_keys[pred_idx]
         # Probability for the predicted grade: min(prob) of thresholds passed,
@@ -378,19 +383,20 @@ def predict_boulder_grade(model: BoulderClassifier, boulder, model_path, holds_d
 # Main function to run the training
 ################
 
-def main(phase, boulder_json = None, model_path = None):
-    model = BoulderClassifier(input_size=8, hidden_size=256, num_classes=len(GRADE_DICT))
+def main(phase, boulder_json = None, model_path = None, boulder_object = None):
+    model = BoulderClassifier(input_size=8, hidden_size=512, num_classes=len(GRADE_DICT))
     model.to(device)
     holds_data = commons.load_holds_data()
     if phase == "train":
         dataloader = initialize_dataset(batch_size=64, holds_data=holds_data)
         train_model(model, dataloader, num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1)     
-    elif phase == "predict":   
-        if len(sys.argv) < 3:
-            print("Usage: python grader.py predict <boulder_json> <model_path>")
-            return
-        boulder = json.load(boulder_json)
+    elif phase == "predict": 
+        boulder = boulder_object
+        if boulder_json:  
+            boulder = json.load(boulder_json)
         pred_grade, prob_percent = predict_boulder_grade(model, boulder, model_path, holds_data)
+        if boulder_object:
+            return pred_grade, prob_percent
         print(f"Predicted grade: {pred_grade}, Probability: {prob_percent:.2f}%")
 
 if __name__ == "__main__":

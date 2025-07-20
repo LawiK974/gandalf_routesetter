@@ -4,6 +4,8 @@ from flask import render_template, url_for, request
 import moonboard.setter as setter
 import moonboard.similar_boulder as sb
 import moonboard.commons as commons
+import moonboard.grader as grader
+import json
 from unique_names_generator import get_random_name
 from unique_names_generator.data import ADJECTIVES, ANIMALS, COLORS, COUNTRIES, LANGUAGES, NAMES, STAR_WARS
 
@@ -59,3 +61,42 @@ def get_beta():
         return {"betas": best_betas, "error": None}
     except Exception as e:
         return {"betas": [], "error": str(e)}, 500
+    
+import os
+
+@app.route("/predict-grade", methods=["POST"])
+def predict_grade():
+    data = request.get_json()
+    boulder = data.get("boulder")
+    if not boulder:
+        return {"error": "Missing boulder parameter."}, 400
+    # Load model path (assume latest or best model)
+    model_dir = os.path.join(os.path.dirname(__file__), '../')
+    # Find a .pth file
+    model_files = [f for f in os.listdir(model_dir) if f.endswith('.pth')]
+    if not model_files:
+        return {"error": "No trained model found."}, 500
+    model_files.sort(key=lambda x: float(x.split('_')[-1].replace('.pth', '')), reverse=True)  # get the most recently created model
+    print(f"Using model: {model_files[0]}")
+    # model_files.sort(key=lambda x: os.path.getctime(os.path.join(model_dir, x)), reverse=True)  # get the most recently created model
+    model_path = os.path.join(model_dir, model_files[0])
+    # Build a fake boulder dict for prediction
+    start = boulder[:2] if int(boulder[2][1:]) < 6 else boulder[:1]
+    boulder_dict = {
+        "holds": boulder,
+        "start": start,
+        "end": [boulder[-1]],
+        # # Add dummy values for required fields
+        # "userGrade": None,
+        # "grade": None,
+        # "method": "Feet follow hands",
+        # "setter": "AI",
+        # "rating": 5,
+        # "isBenchmark": False
+    }
+    try:
+        pred_grade, prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=model_path)
+        return {"grade": pred_grade, "probability": prob_percent, "error": None}
+    except Exception as e:
+        raise e
+        return {"grade": '', "probability": '', "error": str(e)}, 500

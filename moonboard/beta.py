@@ -171,7 +171,7 @@ def best_betas(betas: list[dict], max_betas: int | None = None) -> list[dict]:
     betas = list(filter(lambda x: x['mean_distance'] == min_mean_distance, betas)) # Filter betas with the minimum maximum difficulty
     
     min_crosses = min([beta['crosses'] for beta in betas])  # then Get the minimum number of crosses in the beta
-    betas = filter(lambda x: x['crosses'] == min_crosses, betas)
+    betas = list(filter(lambda x: x['crosses'] == min_crosses, betas))
     
     # min_bumps =  min([beta['bumps'] for beta in betas])  # then Get the minimum number of bumps in the beta
     # betas = list(filter(lambda x: x['bumps'] == min_bumps, betas))  # then filter betas with the minimum number of bumps
