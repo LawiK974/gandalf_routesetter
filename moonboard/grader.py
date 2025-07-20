@@ -21,6 +21,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 ##########################################
 # Constants and Mappings
 ##########################################
+# check https://towardsdatascience.com/how-to-perform-ordinal-regression-classification-in-pytorch-361a2a095a99/
+# for why this encoding is used (CORAL method)
+# The grades are encoded as a binary vector where each position corresponds to a threshold passed.
 GRADE_DICT = {
     "6A+":[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "6B": [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -110,6 +113,7 @@ def filter_dataset(dataset):
             or (
                 boulder["userGrade"] is not None # user grade is set
                 and boulder["grade"] != "8B+" # ignore 8B+ grades
+                and boulder["userGrade"] != "8B+" # ignore 8B+ grades
                 and not has_too_much_holds_together(boulder['holds'])
                 and boulder["rating"] >= 3
             )
@@ -137,8 +141,8 @@ class BoulderDataset(Dataset):
         for boulder in dataset:
             boulder_vector = self.vectorize_boulder(boulder, holds_data)
             label_vector = GRADE_DICT[boulder["userGrade"] or boulder['grade']][1:]  # remove the first element (0) to match the output size
-            self.data.append(torch.tensor(boulder_vector, dtype=torch.float32))
-            self.labels.append(torch.tensor(label_vector, dtype=torch.float32))
+            self.data.append(torch.tensor(boulder_vector, dtype=torch.float32).to(device))
+            self.labels.append(torch.tensor(label_vector, dtype=torch.float32).to(device))
 
     @staticmethod
     def vectorize_boulder(boulder, holds_data=None):
@@ -220,7 +224,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     # This is a common practice in deep learning to prevent overfitting
     # and encourage generalization.
     # It helps to regularize the model by penalizing large weights.
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=learning_rate * 0.1)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
 
     train_loss, val_loss = [], []
     for epoch in range(num_epochs):
