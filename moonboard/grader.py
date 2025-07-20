@@ -236,7 +236,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
     # optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay_factor*learning_rate)
 
-    train_loss, val_loss = [], []
+    train_loss, val_loss, val_accuracy = [], [], []
     for epoch in range(num_epochs):
         model.train()
         epoch_loss = 0.0
@@ -264,7 +264,6 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
                 val_epoch_loss += loss.item()
                 # Compute accuracy: convert sigmoid(outputs) > 0.5 to binary, then sum all correct full matches
                 preds = (torch.sigmoid(outputs) > 0.5).float()
-                # matches = (preds == grades).all(dim=1)
                 pred_idx = prediction2labelindex(preds.cpu().numpy()) 
                 true_idx = prediction2labelindex(grades.cpu().numpy())
                 matches = (pred_idx == true_idx)
@@ -276,6 +275,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
         avg_val_loss = val_epoch_loss / (val_batch_count + 1)
         val_loss.append(avg_val_loss)
         accuracy = 100.0 * correct / total if total > 0 else 0.0
+        val_accuracy.append(accuracy)
         print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}, Valid Acc: {accuracy:.2f}%")
 
     # Plot confusion matrix
@@ -305,7 +305,7 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     plt.close()
     min_loss = min(val_loss)
     min_loss_index = np.argmin(accuracy)  # +1 because epochs are 1-indexed
-    max_accuracy = accuracy[min_loss_index]  # Use max accuracy for model saving
+    max_accuracy = val_accuracy[min_loss_index]  # Use max accuracy for model saving
     print(f"Training complete. Best validation loss: {min_loss:.4f} with accuracy {max_accuracy:.2f}% at epoch {min_loss_index + 1}")
     # Save the model
     model_path = f"beta_classifier-lr_{learning_rate}-wdf_{weight_decay_factor}-acc_{accuracy:.2f}.pth"
