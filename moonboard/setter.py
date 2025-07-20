@@ -4,6 +4,10 @@
 import random
 import numpy as np
 import scipy.stats as stats
+try:
+    import commons
+except:
+    from . import commons
 
 SIZE = (18, 11)  # moonboard classique
 # SIZE = (12, 11)  # mini moonboard
@@ -11,7 +15,7 @@ INSERT_DISTANCE = 20  # cm entre les prises
 board = [[(x,y) for y in range(SIZE[1])] for x in range(SIZE[0])]
 ENVERGURE = 170
 
-def get_weight_gaussian(distance: float, mu: float = ENVERGURE/2, sigma: float = ENVERGURE/4) -> float:
+def get_weight_gaussian(distance: float, mu: float = (ENVERGURE - 22)/2, sigma: float = (ENVERGURE - 22)/4) -> float:
     """ Returns a weight according to a gaussian distribution."""
     # par défaut mu est la moitié de l'envergure
     # et sigma est un quart de l'envergure (68% des prises seront entre mu-sigma et mu+sigma)
@@ -31,7 +35,7 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
         # prise de départ au hasard en dessous de la 6eme rangee
         candidates = board[:6]
         if hold_types and holds_data:
-            candidates = [[hold for hold in row if holds_data.get(get_hold_name(hold), {})["type"] in hold_types] for row in candidates]
+            candidates = [[hold for hold in row if holds_data.get(commons.get_hold_name(hold), {})["type"] in hold_types] for row in candidates]
             if not candidates:
                 raise ValueError("No holds found matching the specified types.")
         hold = random.choice(random.choice(candidates))
@@ -46,14 +50,14 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
                 distance =  commons.get_distance_pos(previous, new)
                 # restriction a uniquement les prises au dessus de la precedente 
                 # et a une distance inferieure à l'envergure
-                if distance < ENVERGURE:
+                if distance < (span - 22):
                     hold_name = commons.get_hold_name(new)
                     if hold_types and holds_data:
-                        undercling = 'S' in holds_data.get(hold_name, None)["orentation"]
-                        if holds_data.get(hold_name, None)["type"] not in hold_types or (undercling and 'undercling' not in hold_types):
+                        undercling = 'S' in holds_data[hold_name]["orientation"]
+                        if holds_data[hold_name]["type"] not in hold_types or (undercling and 'undercling' not in hold_types):
                             continue
                     possible_holds.append(new)
-                    weight_list.append(get_weight_gaussian(distance, span/2, span/4))  # poids selon la distance
+                    weight_list.append(get_weight_gaussian(distance, (span - 22)/2, (span - 22)/4))  # poids selon la distance
         if not possible_holds:
             return []
         hold = random.choices(possible_holds, weight_list, k=1)[0]
@@ -69,7 +73,4 @@ def main():
     # print(f"Most similar Boulder: {similar_boulder}, Score: {score*100:.2f}%")
 
 if __name__ == "__main__":
-    import commons
     main()
-else:
-    from . import commons

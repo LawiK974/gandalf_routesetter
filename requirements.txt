@@ -3,3 +3,6 @@ scipy
 flask
 unique-names-generator
 torch
+matplotlib
+scikit-learn
+seaborn

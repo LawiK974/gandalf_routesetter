@@ -76,7 +76,7 @@ X,Y,hold,type,texture,orientation,can_match
 4,2,E3,crimp,black,SW,False
 4,3,E4,micropinch,wooda,NW,False
 4,4,E5,crimp,black,N,False
-4,5,E6,pinch,woodb,N,False
+4,5,E6,pinch,woodb,N,True
 4,6,E7,pinch,white,NE,True
 4,7,E8,crimp,woodc,NE,False
 4,8,E9,crimp,black,NE,False
@@ -146,7 +146,7 @@ X,Y,hold,type,texture,orientation,can_match
 8,0,I1,crimp,yellow,SE,False
 8,1,I2,crimp,white,SE,False
 8,2,I3,crimp,white,NE,False
-8,3,I4,crimp,wooda,NO,False
+8,3,I4,crimp,wooda,N,False
 8,4,I5,crimp,yellow,N,False
 8,5,I6,micropinch,wooda,NE,False
 8,6,I7,micropinch,wooda,NW,False
@@ -173,7 +173,7 @@ X,Y,hold,type,texture,orientation,can_match
 9,9,J10,crimp,yellow,NE,False
 9,10,J11,pinch,woodb,N,True
 9,11,J12,sloper,wooda,N,False
-9,12,J13,crimp,wooda,NE,False
+9,12,J13,crimp,wooda,N,False
 9,13,J14,sloper,white,N,False
 9,14,J15,pinch,woodb,NE,False
 9,15,J16,crimp,yellow,N,False

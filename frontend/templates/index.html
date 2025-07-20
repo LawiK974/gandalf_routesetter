@@ -62,8 +62,10 @@
             </div>
         </div>
         <button id="generate_boulder" type="button" class="btn btn-warning">Generate boulder</button>
+        <button id="get_beta" type="button" class="btn btn-info ms-2">Get Beta</button>
         <div>
             <p>Generated Boulder: <span id="generated-boulder"></span></p>
+            <div id="beta-result" class="mt-2"></div>
             <div style="position: relative; display: inline-block;">
                 <img src="{{ image_url }}" alt="Generated Moonboard" id="moonboard-image" style="width: 100%;">
                 <svg id="grid-overlay"
@@ -151,6 +153,7 @@
             circle.setAttribute('cy', cy);
             circle.setAttribute('r', cellWidth * 0.5); // Adjust radius for better visibility
             circle.setAttribute('fill', 'none');
+            circle.setAttribute('id', 'svg-hold-' + hold); // Assign unique id for hover effect
             let strokeColor;
             if (index === 0) {
                 strokeColor = '#00FF00'; // Green for first
@@ -183,12 +186,16 @@
             params.append('hold_types', checkedTypes.join(','));
         }
         fetch(`/generate?${params.toString()}`)
-            .then(response => response.json())
+            .then(response => {
+                document.getElementById('beta-result').innerHTML = ""
+                return response.json()
+            })
             .then(data => {
                 if (data.error) {
                     document.querySelector('#generated-boulder').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
                     return;
                 }
+                console.log(data)
                 document.querySelector('#generated-boulder').textContent = data.boulder;
                 // Format similar boulders as a user-friendly list
                 let similarList = '';
@@ -208,6 +215,111 @@
                 document.querySelector('#generated-boulder').innerHTML = `<span class='text-danger'>Error: ${error}</span>`;
             });
     });
+    document.querySelector('#get_beta').addEventListener('click', function () {
+        const boulderStr = document.querySelector('#generated-boulder').textContent;
+        const span = spanSlider.value;
+        if (!boulderStr) {
+            document.getElementById('beta-result').innerHTML = `<span class='text-danger'>No boulder generated.</span>`;
+            return;
+        }
+        // Nettoyage éventuel des espaces
+        const holds = boulderStr.split(',').map(h => h.trim()).filter(Boolean);
+        if (holds.length < 2) {
+            document.getElementById('beta-result').innerHTML = `<span class='text-danger'>Not enough holds to compute beta.</span>`;
+            return;
+        }
+        const params = new URLSearchParams({ boulder: JSON.stringify(holds), span });
+        fetch(`/get-beta?${params.toString()}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('beta-result').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
+                    return;
+                }
+                if (!data.betas || data.betas.length === 0) {
+                    document.getElementById('beta-result').innerHTML = `<span class='text-warning'>No beta found for this boulder.</span>`;
+                    return;
+                }
+                // Affichage formaté des betas
+                let html = '<b>Computed Betas:</b><ol>';
+                data.betas.forEach((beta, i) => {
+                    // For each beta, display holds as clickable/hoverable spans
+                    if (Array.isArray(beta["beta"])) {
+                        html += `<li>`;
+                        // Show stats except 'beta' key
+                        Object.keys(beta).forEach(key => {
+                            if (key !== 'beta') {
+                                html += `<b>${key}:</b> <span>${typeof beta[key] === 'string' ? JSON.stringify(beta[key]) : beta[key]} </span>`;
+                            }
+                        });
+                        // Show the beta sequence
+                        html += `<div><b>Beta:</b> `;
+                        beta["beta"].forEach((hold, j) => {
+                            html += `<span class="beta-hold" data-hold="${hold}" style="cursor:pointer; padding:2px 4px; border-radius:4px;">${hold}</span>`;
+                            if (j < beta["beta"].length - 1) html += '=>';
+                        });
+                        html += `</div></li>`;
+                    } else {
+                        html += `<li><pre>${JSON.stringify(beta, null, 2)}</pre></li>`;
+                    }
+                });
+                html += '</ol>';
+                document.getElementById('beta-result').innerHTML = html;
+
+                // Add hover event listeners to beta-hold spans
+                document.querySelectorAll('.beta-hold').forEach(span => {
+                    span.addEventListener('mouseenter', function() {
+                        const hold_name = this.getAttribute('data-hold');
+                        const hold = hold_name.slice(1);
+                        const hand = hold_name.charAt(0);
+                        // const circle = document.getElementById('svg-hold-' + hold);
+                        // Find the cx, cy for the hold
+                        const col = hold.charCodeAt(0) - 65;
+                        const row = parseInt(hold.slice(1)) - 1;
+                        const moonImg = document.querySelector('#moonboard-image');
+                        const { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM } = getOffsets();
+                        const gridWidth = moonImg.offsetWidth - OFFSET_LEFT - OFFSET_RIGHT;
+                        const gridHeight = moonImg.offsetHeight - OFFSET_TOP - OFFSET_BOTTOM;
+                        const cellWidth = gridWidth / COLS;
+                        const cellHeight = gridHeight / ROWS;
+                        const cx = OFFSET_LEFT + col * cellWidth + cellWidth / 2;
+                        const cy = OFFSET_TOP + (ROWS - row - 1) * cellHeight + cellHeight / 2;
+
+                        // Add hand.png image at the same position
+                        const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+                        if (hand === 'L') {
+                            img.setAttribute('href', '/static/lefthand.png');
+                        } else {
+                            img.setAttribute('href', '/static/righthand.png');
+                        }
+                        img.setAttribute('width', '40'); // Adjust size as needed
+                        img.setAttribute('height', '40');
+                        img.setAttribute('id', 'svg-hand-' + hold_name);
+
+                        img.setAttribute('x', cx - 20); // Center the image
+                        img.setAttribute('y', cy - 20);
+
+                        // Add a data attribute to help remove it on mouseleave
+                        img.setAttribute('data-hand-hold', hold_name);
+
+                        document.querySelector('#grid-overlay').appendChild(img);
+                    });
+                    span.addEventListener('mouseleave', function() {
+                        const hold_name = this.getAttribute('data-hold');
+                        const svg = document.querySelector('#grid-overlay');
+                        // If not found, set a timeout to remove after 5 seconds (in case it was not hovered out)
+                        setTimeout(() => {
+                            const delayedImg = svg.querySelector(`image[data-hand-hold="${hold_name}"]`);
+                            if (delayedImg) delayedImg.remove();
+                        }, 5000);
+                    });
+                });
+            })
+            .catch(error => {
+                document.getElementById('beta-result').innerHTML = `<span class='text-danger'>Error: ${error}</span>`;
+            });
+    });
+
     document.querySelector('#generate_name').addEventListener('click', function () {
         fetch('/generate-name')
             .then(response => response.json())

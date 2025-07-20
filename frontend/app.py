@@ -1,3 +1,4 @@
+import moonboard.beta as beta
 from flask import Flask
 from flask import render_template, url_for, request
 import moonboard.setter as setter
@@ -36,7 +37,7 @@ def generate_boulder():
             "score": '',
             "similar": [],
             "error": str(e)
-        }
+        }, 500
 
 @app.route("/generate-name")
 def generate_name():
@@ -45,3 +46,16 @@ def generate_name():
     name = get_random_name(combo=[data_left, data_right])
     print(f"Generated name: {name}")
     return {"name": name}
+
+@app.route("/get-beta")
+def get_beta():
+    span = int(request.args.get('span', 170))
+    boulder = request.args.get('boulder')
+    if not boulder:
+        return {"error": "Missing boulder parameter."}, 400
+    try:
+        # beta.main attend une string de type '["A1", "B2", ...]'
+        best_betas = beta.main(span, boulder)
+        return {"betas": best_betas, "error": None}
+    except Exception as e:
+        return {"betas": [], "error": str(e)}, 500
