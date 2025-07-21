@@ -8,6 +8,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import sys
 import json
+import csv
 try:
     import commons
     import sklearn.metrics as skmetrics
@@ -85,8 +86,9 @@ ORIENTATION_DICT = {
 }
 
 ###########
-# build Dataset 
+# build Dataset
 #############
+
 
 def has_too_much_holds_together(holds):
     """Check if there are too many holds together in a boulder."""
@@ -98,6 +100,7 @@ def has_too_much_holds_together(holds):
         if neighboors > 1:
             return True
     return False
+
 
 def filter_dataset(dataset):
     """Filtre le dataset pour ne garder que les boulders avec des prises valides."""
@@ -132,6 +135,7 @@ def filter_dataset(dataset):
         print(f"{grade}: {grade_counts_after[grade]}")
     return oversampled_dataset
 
+
 # New function: oversample the dataset by duplicating samples from minority classes
 def oversample_dataset_by_grade(dataset):
     from collections import defaultdict
@@ -152,27 +156,40 @@ def oversample_dataset_by_grade(dataset):
     random.shuffle(oversampled)
     return oversampled
 
+
 class BoulderDataset(Dataset):
     def __init__(self, dataset, holds_data=None):
+        self.input_size = 11  # Number of features per hold (increased from 10 to 11)
         self.data, self.labels = [], []
         for boulder in dataset:
-            boulder_vector = self.vectorize_boulder(boulder, holds_data)
+            boulder_vector = self.vectorize_boulder(boulder, self.input_size, holds_data)
             label_vector = GRADE_DICT[boulder["userGrade"] or boulder['grade']][1:]  # remove the first element (0) to match the output size
             self.data.append(torch.tensor(boulder_vector, dtype=torch.float32).to(device))
             self.labels.append(torch.tensor(label_vector, dtype=torch.float32).to(device))
 
     @staticmethod
-    def vectorize_boulder(boulder, holds_data=None):
+    def vectorize_boulder(boulder, input_size, holds_data={}):
         """Convertit une beta en vecteur de difficulté des prises utilisées."""
-        vector = np.zeros((14, 8))  # Maximum number of moves in a beta (app limit 14 holds )
+        vector = np.zeros((14, input_size))  # Maximum number of moves in a beta (app limit 14 holds )
+
         for idx, hold_name in enumerate(boulder["holds"]):
-            hold_type = holds_data[hold_name]['type']
-            hold_texture = holds_data[hold_name]['texture']
-            can_match = holds_data[hold_name]['can_match']
-            orientation = holds_data[hold_name]['orientation']
+            hold_data = holds_data[hold_name]
+            hold_type = hold_data['type']
+            hold_texture = hold_data['texture']
+            can_match = hold_data['can_match']
+            orientation = hold_data['orientation']
             is_start = hold_name in boulder["start"]
             is_end = hold_name in boulder["end"]
             hold_pos = commons.hold_name_to_pos(hold_name)
+
+            # Calculate distance to closest other hold in "hold units"
+            min_distance = 50
+            for other_hold_name in boulder["holds"]:
+                if other_hold_name != hold_name:
+                    distance_cm = commons.get_distance(hold_name, other_hold_name)
+                    distance_hold_units = distance_cm / commons.INSERT_DISTANCE
+                    min_distance = min(min_distance, distance_hold_units)
+
             vector[idx] = [
                 int(hold_pos[0]),
                 int(hold_pos[1]),
@@ -182,6 +199,9 @@ class BoulderDataset(Dataset):
                 int(HOLD_TEXTURE_DICT[hold_texture]),
                 int(ORIENTATION_DICT[orientation]),
                 int(CAN_MATCH_DICT[can_match]),
+                int(round(commons.get_hold_difficulty("L", hold_data))),
+                int(round(commons.get_hold_difficulty("R", hold_data))),
+                int(round(min_distance, 1)),  # Distance in hold units (rounded to 1 decimal)
             ]
         return vector
 
@@ -214,13 +234,80 @@ class BoulderClassifier(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :]) # Take the last time step of the lstm
+        out = self.fc(out[:, -1, :])  # Take the last time step of the lstm
         return out
 
 
-def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs=100, learning_rate=1e-3, weight_decay_factor=0.1, hidden_size=128):
-    outputs_suffix = f"lr_{learning_rate}-epochs_{num_epochs}-hs_{hidden_size}"
-    train_loader, val_loader = loaders
+def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, outputs_suffix):
+    """Plot training and validation loss, accuracy, MAE, and confusion matrix in a 2x2 grid."""
+
+    # Create a figure with 2x2 subplots
+    plt.figure(figsize=(15, 12))
+
+    # Plot 1: Training and Validation Loss
+    plt.subplot(2, 2, 1)
+    plot_shift = 20  # Shift to start plotting from epoch 20
+    plt.plot(range(plot_shift, len(train_loss)), train_loss[plot_shift:], marker='o', label='Train Loss')
+    plt.plot(range(plot_shift, len(val_loss)), val_loss[plot_shift:], marker='x', label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid()
+
+    # Plot 2: Validation Accuracy (both exact and close)
+    plt.subplot(2, 2, 2)
+    plt.plot(val_accuracy, label='Exact Accuracy', color='green')
+    plt.plot(val_close_accuracy, label='Close Accuracy (±1)', color='orange')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Validation Accuracy')
+    plt.legend()
+    plt.grid()
+
+    # Plot 3: Validation MAE
+    plt.subplot(2, 2, 3)
+    plt.plot(val_mae_list, label='Validation MAE', color='red')
+    plt.xlabel('Epoch')
+    plt.ylabel('MAE')
+    plt.title('Validation Mean Absolute Error')
+    plt.legend()
+    plt.grid()
+
+    # Plot 4: Confusion Matrix
+    plt.subplot(2, 2, 4)
+    cm = skmetrics.confusion_matrix(all_true, all_pred, labels=list(range(len(GRADE_DICT))))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=list(GRADE_DICT.keys()),
+                yticklabels=list(GRADE_DICT.keys()))
+    plt.xlabel('Predicted Grade')
+    plt.ylabel('True Grade')
+    plt.title('Confusion Matrix (Validation)')
+
+    plt.tight_layout()
+    plt.savefig(f"training_results-{outputs_suffix}.png", dpi=300, bbox_inches='tight')
+    # plt.show()
+    plt.close()
+
+
+def train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False) -> dict[str, float | dict[str, float]]:
+    """
+    Evaluate a set of hyperparameters and return key metrics for optimization.
+
+    Returns:
+        dict: Dictionary containing validation accuracy, loss, MAE, and best epoch
+    """
+    holds_data = commons.load_holds_data()
+    print(f"Training model with hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}, learning_rate={learning_rate}, weight_decay_factor={weight_decay_factor}, num_epochs={num_epochs}")
+
+    # Initialize model and dataset
+    model = BoulderClassifier(input_size=11, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
+    model.to(device)
+
+    train_loader, val_loader = initialize_dataset(batch_size=batch_size, holds_data=holds_data)
+
+    # Training setup
+
     # Define loss function
     # Using BCEWithLogitsLoss for binary classification with logits output
     # This is suitable for ordinal regression where we treat each threshold as a binary classification problem.
@@ -229,16 +316,24 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
     # This is more numerically stable than using a plain Sigmoid followed by a BCELoss loss.
     # It is used for multi-label classification problems where each class is independent.
     loss_func = nn.BCEWithLogitsLoss()
-    
+
     # weight decay is set to 10% of the learning rate.
     # This is a common practice in deep learning to prevent overfitting
     # and encourage generalization.
     # It helps to regularize the model by penalizing large weights.
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
-    # optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay_factor*learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=learning_rate * weight_decay_factor)
 
-    train_loss, val_loss, val_accuracy = [], [], []
+    best_accuracy = 0.0
+    best_mae = float('inf')  # MAE should be minimized
+    best_close_accuracy = 0.0
+    best_loss = float('inf')
+    best_epoch = 0
+    train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list = [], [], [], [], []
+    all_true = []
+    all_pred = []
+
     for epoch in range(num_epochs):
+        # Training phase
         model.train()
         epoch_loss = 0.0
         for batch_count, (boulders, grades) in enumerate(train_loader):
@@ -255,65 +350,154 @@ def train_model(model: BoulderClassifier, loaders: tuple[DataLoader], num_epochs
         model.eval()
         val_epoch_loss = 0.0
         correct = 0
+        close_correct = 0
         total = 0
+        mae_sum = 0.0
         all_true = []
         all_pred = []
+
         with torch.no_grad():
             for val_batch_count, (boulders, grades) in enumerate(val_loader):
                 outputs = model(boulders)
                 loss = loss_func(outputs, grades)
                 val_epoch_loss += loss.item()
-                # Compute accuracy: convert sigmoid(outputs) > 0.5 to binary, then sum all correct full matches
+
                 preds = (torch.sigmoid(outputs) > 0.5).float()
-                pred_idx = prediction2labelindex(preds.cpu().numpy()) 
+                pred_idx = prediction2labelindex(preds.cpu().numpy())
                 true_idx = prediction2labelindex(grades.cpu().numpy())
-                matches = (pred_idx == true_idx)
-                correct += matches.sum().item()
+
+                # Exact accuracy (traditional)
+                exact_matches = (pred_idx == true_idx).sum()
+                correct += exact_matches
+                
+                # Close accuracy (±1 grade)
+                close_matches = (np.abs(pred_idx - true_idx) <= 1).sum()
+                close_correct += close_matches
+                
                 total += grades.size(0)
+                mae_sum += np.abs(pred_idx - true_idx).sum()
+                
                 # For confusion matrix: convert ordinal output to class index
                 all_true.extend(true_idx.tolist())
                 all_pred.extend(pred_idx.tolist())
+
         avg_val_loss = val_epoch_loss / (val_batch_count + 1)
+        exact_accuracy = 100.0 * correct / total if total > 0 else 0.0
+        close_accuracy = 100.0 * close_correct / total if total > 0 else 0.0
+        mae = mae_sum / total if total > 0 else 0.0
         val_loss.append(avg_val_loss)
-        accuracy = 100.0 * correct / total if total > 0 else 0.0
-        val_accuracy.append(accuracy)
-        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}, Valid Acc: {accuracy:.2f}%")
+        val_accuracy.append(exact_accuracy)
+        val_close_accuracy.append(close_accuracy)
+        val_mae_list.append(mae)
+        
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}")
+        print(f"    Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}")
 
-    # Plot confusion matrix
-    cm = skmetrics.confusion_matrix(all_true, all_pred, labels=list(range(len(GRADE_DICT))))
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=list(GRADE_DICT.keys()), yticklabels=list(GRADE_DICT.keys()))
-    plt.xlabel('Predicted Grade')
-    plt.ylabel('True Grade')
-    plt.title('Confusion Matrix (Validation)')
-    plt.tight_layout()
-    plt.savefig(f"confusion_matrix_val-{outputs_suffix}-acc_{accuracy:.2f}-{avg_val_loss:.4f}.png")
-    # plt.show()
-    plt.close()
+        # Track best metrics - use MAE as primary metric (lower is better)
+        if mae < best_mae:
+            best_mae = mae
+            best_accuracy = exact_accuracy
+            best_close_accuracy = close_accuracy
+            best_loss = avg_val_loss
+            best_epoch = epoch + 1
 
-    # Plot loss evolution
-    plt.figure()
-    plot_shift = 20  # Shift to start plotting from epoch 15
-    plt.plot(range(plot_shift, num_epochs+1), train_loss[plot_shift - 1:], marker='o', label='Train Loss')
-    plt.plot(range(plot_shift, num_epochs+1), val_loss[plot_shift - 1:], marker='x', label='Valid Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss Evolution')
-    plt.grid(True)
-    plt.legend()
-    plt.savefig(f"training_val_loss-{outputs_suffix}-acc_{accuracy:.2f}_{avg_val_loss:.4f}.png")
-    # plt.show()
-    plt.close()
-    min_loss = min(val_loss)
-    min_loss_index = np.argmin(val_loss)  # +1 because epochs are 1-indexed
-    max_accuracy = val_accuracy[min_loss_index]  # Use max accuracy for model saving
-    print(f"Training complete. Best validation loss: {min_loss:.4f} with accuracy {max_accuracy:.2f}% at epoch {min_loss_index + 1}")
-    # Save the model
-    model_path = f"beta_classifier-{outputs_suffix}-acc_{accuracy:.2f}-loss_{avg_val_loss:.4f}.pth"
-    torch.save(model.state_dict(), model_path)
-    print(f"Model saved as {model_path}")
+        # Early stopping based on MAE improvement
+        if epoch - best_epoch > 20:
+            print(f"Early stopping at epoch {epoch + 1} (no MAE improvement)")
+            break
+    if not search_mode:
+        outputs_suffix = f"lr_{learning_rate}-epochs_{epoch+1}-hs_{hidden_size}-mae_{best_mae:.3f}-acc_{best_accuracy:.2f}"
+        print(f"Training complete. Best MAE: {best_mae:.3f} with exact accuracy {best_accuracy:.2f}% and close accuracy {best_close_accuracy:.2f}% at epoch {best_epoch}")
+        # Save the model
+        model_path = f"boulder_classifier-{outputs_suffix}.pth"
+        torch.save(model.state_dict(), model_path)
+        print(f"Model saved as {model_path}")
+        plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, outputs_suffix)
+    return {
+        'validation_accuracy': best_accuracy,
+        'validation_close_accuracy': best_close_accuracy,
+        'validation_loss': best_loss,
+        'mae': best_mae,
+        'best_epoch': best_epoch,
+        'hidden_size': hidden_size,
+        'batch_size': batch_size,
+        'learning_rate': learning_rate,
+        'weight_decay_factor': weight_decay_factor
+    }
 
-    return train_loss, val_loss
+
+def hyperparameter_search():
+    """
+    Example hyperparameter search function.
+    You can use this as a starting point for grid search or random search.
+    """
+    # Define hyperparameter ranges
+    hidden_sizes = [64, 128, 256, 512]
+    batch_sizes = [32, 64, 128]
+    learning_rates = [1e-4, 1e-3, 1e-2]
+    weight_decay_factors = [0.05, 0.1, 0.2]
+
+    best_config = {}
+    best_mae = float('inf')  # MAE should be minimized, not maximized
+    results = []
+
+    # Initialize CSV file with headers
+    csv_filename = "hyperparameter_results.csv"
+    with open(csv_filename, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
+            "mae", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
+        ])
+
+    print("Starting hyperparameter search...")
+    print("Primary metric: MAE (lower is better)")
+    print("Secondary metrics: Close accuracy (±1 grade), Exact accuracy")
+
+    for hidden_size in hidden_sizes:
+        for batch_size in batch_sizes:
+            for learning_rate in learning_rates:
+                for weight_decay_factor in weight_decay_factors:
+                    config = {
+                        'hidden_size': hidden_size,
+                        'batch_size': batch_size,
+                        'learning_rate': learning_rate,
+                        'weight_decay_factor': weight_decay_factor
+                    }
+                    print(f"\nTesting configuration: {config}")
+                    result = train_model(num_epochs=500, search_mode=True, **config)
+                    results.append(result)
+
+                    # Save result to CSV immediately after each configuration
+                    with open(csv_filename, "a", newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([
+                            result['hidden_size'],
+                            result['batch_size'],
+                            result['learning_rate'],
+                            result['weight_decay_factor'],
+                            result['mae'],
+                            result['validation_accuracy'],
+                            result['validation_close_accuracy'],
+                            result['validation_loss'],
+                            result['best_epoch']
+                        ])
+
+                    # Track best configuration by MAE (lower is better)
+                    if result['mae'] < best_mae:
+                        best_mae = result['mae']
+                        best_config = result
+
+                    print(f"MAE: {result['mae']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
+
+    print(f"\nBest configuration saved to {csv_filename}")
+    print(f"Best MAE: {best_config['mae']:.3f}")
+    print(f"Exact Accuracy: {best_config['validation_accuracy']:.2f}%, Close Accuracy: {best_config['validation_close_accuracy']:.2f}%")
+    print(f"Hidden Size: {best_config['hidden_size']}, Batch Size: {best_config['batch_size']}")
+    print(f"Learning Rate: {best_config['learning_rate']}, Weight Decay: {best_config['weight_decay_factor']}")
+
+    return results, best_config
+
 
 def initialize_dataset(batch_size=128, holds_data=None):
     print("Loading dataset...")
@@ -330,9 +514,10 @@ def initialize_dataset(batch_size=128, holds_data=None):
     print(f"Dataset initialized with {len(dataset)} samples. Train: {train_size}, Val: {val_size}")
     return train_loader, val_loader
 
+
 def prediction2labelindex(pred: np.ndarray) -> int:
     """Convert ordinal predictions to class labels, e.g.
-    
+
     [0.9, 0.1, 0.1, 0.1] -> 0
     [0.9, 0.9, 0.1, 0.1] -> 1
     [0.9, 0.9, 0.9, 0.1] -> 2
@@ -348,13 +533,14 @@ def prediction2labelindex(pred: np.ndarray) -> int:
 # Predicting Boulder Grade
 ######################
 
-def predict_boulder_grade(boulder, model_path, holds_data=None):
+def predict_boulder_grade(boulder, model_path):
     """
     Given a boulder dict, loads the saved model and returns the predicted grade string.
     """
     # Vectorize boulder
-    boulder_vector = BoulderDataset.vectorize_boulder(boulder, holds_data)
-    x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 8)
+    holds_data = commons.load_holds_data()
+    boulder_vector = BoulderDataset.vectorize_boulder(boulder, 11, holds_data)
+    x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 11)
     # Extract hidden_size from model_path if present
     import re
     hidden_size = 128  # default
@@ -363,7 +549,7 @@ def predict_boulder_grade(boulder, model_path, holds_data=None):
         hidden_size = int(match.group(1))
     # Create model with correct hidden_size
     print(f"Loading model from {model_path} with hidden size {hidden_size}")
-    model = BoulderClassifier(input_size=8, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
+    model = BoulderClassifier(input_size=11, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
@@ -392,23 +578,20 @@ def predict_boulder_grade(boulder, model_path, holds_data=None):
 # Main function to run the training
 ################
 
+
 def main(phase, boulder_json = None, model_path = None, boulder_object = None):
-    hidden_size = 128
-    num_epochs = 50
-    holds_data = commons.load_holds_data()
     if phase == "train":
-        model = BoulderClassifier(input_size=8, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
-        model.to(device)
-        dataloader = initialize_dataset(batch_size=64, holds_data=holds_data)
-        train_model(model, dataloader, num_epochs=num_epochs, learning_rate=1e-3, weight_decay_factor=0.1, hidden_size=hidden_size)     
-    elif phase == "predict": 
+        train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=500)
+    elif phase == "predict":
         boulder = boulder_object
-        if boulder_json:  
+        if boulder_json:
             boulder = json.load(boulder_json)
-        pred_grade, prob_percent = predict_boulder_grade(boulder, model_path, holds_data)
+        pred_grade, prob_percent = predict_boulder_grade(boulder, model_path)
         if boulder_object:
             return pred_grade, prob_percent
         print(f"Predicted grade: {pred_grade}, Probability: {prob_percent:.2f}%")
+    elif phase == "search":
+        results, best_config = hyperparameter_search()
 
 if __name__ == "__main__":
     main(*sys.argv[1:])

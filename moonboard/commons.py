@@ -32,6 +32,7 @@ def sort_boulder_holds(boulder):
     """ Sorts the boulder holds in a specific order."""
     return sorted(boulder, key=lambda x: ord(x[0]) - 65 + int(x[1:]) * 100)
 
+
 def get_distance_pos(a: tuple, b: tuple) -> float:
     return np.linalg.norm(np.array(a) - np.array(b)) * INSERT_DISTANCE
 
@@ -95,7 +96,7 @@ def load_boulders_from_dataset():
         ending_holds = [hold["description"] for hold in boulder["moves"] if hold["isEnd"]]
         boulder_list.append({
             # removing feets for grader
-            "holds": sort_boulder_holds([hold["description"] for hold in boulder["moves"] if all(int(hold["description"][1:]) >= int(start[1:]) for start in starting_holds)]),
+            "holds": sort_boulder_holds([hold["description"] for hold in boulder["moves"]]),
             "start": starting_holds,
             "end": ending_holds,
             "name": boulder["name"],
