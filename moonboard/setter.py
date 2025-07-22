@@ -45,10 +45,12 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
     else:
         possible_holds = []
         weight_list = []
+        mu = (span - 22) / (2 if previous[0] < 6 else 4)
+        sigma = mu / 2
         for row in board[previous[0]+1:]:
             for new in row:
                 distance =  commons.get_distance_pos(previous, new)
-                # restriction a uniquement les prises au dessus de la precedente 
+                # restriction a uniquement les prises au dessus de la precedente
                 # et a une distance inferieure à l'envergure
                 if distance < (span - 22):
                     hold_name = commons.get_hold_name(new)
@@ -57,7 +59,7 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
                         if holds_data[hold_name]["type"] not in hold_types or (undercling and 'undercling' not in hold_types):
                             continue
                     possible_holds.append(new)
-                    weight_list.append(get_weight_gaussian(distance, (span - 22)/2, (span - 22)/4))  # poids selon la distance
+                    weight_list.append(get_weight_gaussian(distance, mu, sigma))  # poids selon la distance
         if not possible_holds:
             return []
         hold = random.choices(possible_holds, weight_list, k=1)[0]

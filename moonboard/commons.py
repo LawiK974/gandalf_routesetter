@@ -34,7 +34,8 @@ def sort_boulder_holds(boulder):
 
 
 def get_distance_pos(a: tuple, b: tuple) -> float:
-    return np.linalg.norm(np.array(a) - np.array(b)) * INSERT_DISTANCE
+    return float(np.linalg.norm(np.array(a) - np.array(b))) * INSERT_DISTANCE
+
 
 def get_distance(a: str, b: str) -> float:
     """ Calculates the distance between two holds in cm."""
@@ -42,7 +43,8 @@ def get_distance(a: str, b: str) -> float:
     b_row, b_col = hold_name_to_pos(b)
     return get_distance_pos((a_row, a_col), (b_row, b_col))
 
-def get_hold_difficulty(hand: str, hold_data: dict) -> int:
+
+def get_hold_difficulty(hand: str, hold_data: dict) -> float:
     """ Returns the difficulty of a hold based on its name and hand."""
     orientation_point = {
         "N": 0,
@@ -63,6 +65,7 @@ def get_hold_difficulty(hand: str, hold_data: dict) -> int:
     # hold_difficulty = can_match_points + type_points[hold_data["type"]] * (orientation_point[hold_data["orientation"]] + texture_points[hold_data["texture"]])
     return hold_difficulty / max_points * 14 + 1  # Normalize to a scale of 1 to 15, as per the grading system
 
+
 def load_holds_data():
     """ Loads holds data from the dataset."""
     with open(HOLDS_EVAL_PATH, 'r') as file:
@@ -76,15 +79,18 @@ def load_holds_data():
         new_dataset["R" + hold] = {**dataset[hold], "difficulty": get_hold_difficulty("R", dataset[hold])}
     return new_dataset
 
+
 def get_hold_name(hold: tuple[int, int]) -> str:
     """ Returns the name of a hold given its coordinates."""
     return chr(65 + hold[1]) + str(hold[0] + 1)
+
 
 def hold_name_to_pos(hold_name: str) -> tuple[int, int]:
     """ Converts a hold name to its position on the board."""
     col = ord(hold_name[0]) - 65
     row = int(hold_name[1:]) - 1
     return (row, col)
+
 
 def load_boulders_from_dataset():
     """Load boulders from a JSON file."""

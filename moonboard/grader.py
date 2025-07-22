@@ -4,6 +4,8 @@
 import numpy as np
 from torch import nn
 import torch
+import os
+import re
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import sys
@@ -369,14 +371,14 @@ def train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay
                 # Exact accuracy (traditional)
                 exact_matches = (pred_idx == true_idx).sum()
                 correct += exact_matches
-                
+
                 # Close accuracy (±1 grade)
                 close_matches = (np.abs(pred_idx - true_idx) <= 1).sum()
                 close_correct += close_matches
-                
+
                 total += grades.size(0)
                 mae_sum += np.abs(pred_idx - true_idx).sum()
-                
+
                 # For confusion matrix: convert ordinal output to class index
                 all_true.extend(true_idx.tolist())
                 all_pred.extend(pred_idx.tolist())
@@ -389,7 +391,7 @@ def train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay
         val_accuracy.append(exact_accuracy)
         val_close_accuracy.append(close_accuracy)
         val_mae_list.append(mae)
-        
+
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}")
         print(f"    Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}")
 
@@ -435,20 +437,56 @@ def hyperparameter_search():
     hidden_sizes = [64, 128, 256, 512]
     batch_sizes = [32, 64, 128]
     learning_rates = [1e-4, 1e-3, 1e-2]
-    weight_decay_factors = [0.05, 0.1, 0.2]
+    weight_decay_factors = [0, 0.01, 0.05, 0.1, 0.2]
 
     best_config = {}
     best_mae = float('inf')  # MAE should be minimized, not maximized
     results = []
 
-    # Initialize CSV file with headers
+    # Initialize CSV file with headers and read existing results
     csv_filename = "hyperparameter_results.csv"
-    with open(csv_filename, "w", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
-            "mae", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
-        ])
+    tested_configs = set()
+
+    if os.path.exists(csv_filename) and os.path.getsize(csv_filename) > 0:
+        print("Reading existing results from CSV...")
+        with open(csv_filename, "r", newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Create config tuple for fast lookup
+                config_tuple = (
+                    int(row['hidden_size']),
+                    int(row['batch_size']),
+                    float(row['learning_rate']),
+                    float(row['weight_decay_factor'])
+                )
+                tested_configs.add(config_tuple)
+
+                # Track best configuration from existing results
+                mae = float(row['mae'])
+                if mae < best_mae:
+                    best_mae = mae
+                    best_config = {
+                        'hidden_size': int(row['hidden_size']),
+                        'batch_size': int(row['batch_size']),
+                        'learning_rate': float(row['learning_rate']),
+                        'weight_decay_factor': float(row['weight_decay_factor']),
+                        'mae': mae,
+                        'validation_accuracy': float(row['validation_accuracy']),
+                        'validation_close_accuracy': float(row['validation_close_accuracy']),
+                        'validation_loss': float(row['validation_loss']),
+                        'best_epoch': int(row['best_epoch'])
+                    }
+        print(f"Found {len(tested_configs)} already tested configurations")
+        if best_config:
+            print(f"Current best MAE from existing results: {best_mae:.3f}")
+    else:
+        # Create new CSV file with headers
+        with open(csv_filename, "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
+                "mae", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
+            ])
 
     print("Starting hyperparameter search...")
     print("Primary metric: MAE (lower is better)")
@@ -458,6 +496,12 @@ def hyperparameter_search():
         for batch_size in batch_sizes:
             for learning_rate in learning_rates:
                 for weight_decay_factor in weight_decay_factors:
+                    # Check if this configuration was already tested
+                    config_tuple = (hidden_size, batch_size, learning_rate, weight_decay_factor)
+                    if config_tuple in tested_configs:
+                        print(f"Skipping already tested configuration: {config_tuple}")
+                        continue
+
                     config = {
                         'hidden_size': hidden_size,
                         'batch_size': batch_size,
@@ -465,7 +509,7 @@ def hyperparameter_search():
                         'weight_decay_factor': weight_decay_factor
                     }
                     print(f"\nTesting configuration: {config}")
-                    result = train_model(num_epochs=500, search_mode=True, **config)
+                    result = train_model(num_epochs=900, search_mode=True, **config)
                     results.append(result)
 
                     # Save result to CSV immediately after each configuration
@@ -542,7 +586,6 @@ def predict_boulder_grade(boulder, model_path):
     boulder_vector = BoulderDataset.vectorize_boulder(boulder, 11, holds_data)
     x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 11)
     # Extract hidden_size from model_path if present
-    import re
     hidden_size = 128  # default
     match = re.search(r"-hs_(\d+)", model_path)
     if match:
