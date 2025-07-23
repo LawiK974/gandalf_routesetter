@@ -29,7 +29,7 @@ def get_boulder(span: int = ENVERGURE, hold_types: list = None) -> list[str]:
 
 
 
-def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None) -> list[tuple[int, int]]:
+def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None, start: bool = False) -> list[tuple[int, int]]:
     """ Returns the next hold to grab based on the previous hold, optionally filtering by hold_types."""
     if previous is None:
         # prise de départ au hasard en dessous de la 6eme rangee
@@ -39,15 +39,16 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
             if not candidates:
                 raise ValueError("No holds found matching the specified types.")
         hold = random.choice(random.choice(candidates))
+        start = not holds_data[commons.get_hold_name(hold)]["can_match"]
     elif previous[0] == SIZE[0] - 1:
         # fin du mur
         return []
     else:
         possible_holds = []
         weight_list = []
-        mu = (span - 22) / (2 if previous[0] < 6 else 4)
+        mu = (span - 22) / 2
         sigma = mu / 2
-        for row in board[previous[0]+1:]:
+        for row in board[previous[0]+1:6 if start else SIZE[0]]:
             for new in row:
                 distance =  commons.get_distance_pos(previous, new)
                 # restriction a uniquement les prises au dessus de la precedente
@@ -63,16 +64,15 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
         if not possible_holds:
             return []
         hold = random.choices(possible_holds, weight_list, k=1)[0]
+        start = False
     # on ajoute la prise courante à la liste des prises
-    return [hold] + get_next_hold(hold, span, hold_types, holds_data)
+    return [hold] + get_next_hold(hold, span, hold_types, holds_data, start=start)
 
 def main():
     """ Main function to generate a boulder problem."""
     boulder = get_boulder()
     boulder = commons.sort_boulder_holds(boulder)
     print(f"Generated Boulder: {boulder}")
-    # similar_boulder, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
-    # print(f"Most similar Boulder: {similar_boulder}, Score: {score*100:.2f}%")
 
 if __name__ == "__main__":
     main()

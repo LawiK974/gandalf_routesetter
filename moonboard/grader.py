@@ -9,6 +9,7 @@ import re
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import sys
+import signal
 import json
 import csv
 try:
@@ -87,6 +88,12 @@ ORIENTATION_DICT = {
     "S": 8,
 }
 
+MOONBOARD_VERSION_DICT = {
+    "2016": 1,
+    "2017": 2, 
+    "2019": 3,
+}
+
 ###########
 # build Dataset
 #############
@@ -160,8 +167,8 @@ def oversample_dataset_by_grade(dataset):
 
 
 class BoulderDataset(Dataset):
-    def __init__(self, dataset, holds_data=None):
-        self.input_size = 11  # Number of features per hold (increased from 10 to 11)
+    def __init__(self, dataset, holds_data=None, input_size=11):
+        self.input_size = input_size  # Number of features per hold (increased from 10 to 11)
         self.data, self.labels = [], []
         for boulder in dataset:
             boulder_vector = self.vectorize_boulder(boulder, self.input_size, holds_data)
@@ -175,7 +182,7 @@ class BoulderDataset(Dataset):
         vector = np.zeros((14, input_size))  # Maximum number of moves in a beta (app limit 14 holds )
 
         for idx, hold_name in enumerate(boulder["holds"]):
-            hold_data = holds_data[hold_name]
+            hold_data = holds_data[boulder['version']][hold_name]
             hold_type = hold_data['type']
             hold_texture = hold_data['texture']
             can_match = hold_data['can_match']
@@ -184,13 +191,9 @@ class BoulderDataset(Dataset):
             is_end = hold_name in boulder["end"]
             hold_pos = commons.hold_name_to_pos(hold_name)
 
-            # Calculate distance to closest other hold in "hold units"
-            min_distance = 50
-            for other_hold_name in boulder["holds"]:
-                if other_hold_name != hold_name:
-                    distance_cm = commons.get_distance(hold_name, other_hold_name)
-                    distance_hold_units = distance_cm / commons.INSERT_DISTANCE
-                    min_distance = min(min_distance, distance_hold_units)
+            # Calculate distance to previous hold in "hold units"
+            # for the first hold, we set distance to 0
+            distance = commons.get_distance(hold_name, boulder["holds"][idx - 1]) / commons.INSERT_DISTANCE if idx > 0 else 0
 
             vector[idx] = [
                 int(hold_pos[0]),
@@ -203,8 +206,10 @@ class BoulderDataset(Dataset):
                 int(CAN_MATCH_DICT[can_match]),
                 int(round(commons.get_hold_difficulty("L", hold_data))),
                 int(round(commons.get_hold_difficulty("R", hold_data))),
-                int(round(min_distance, 1)),  # Distance in hold units (rounded to 1 decimal)
+                int(round(distance)),
             ]
+            if input_size == 12:
+                vector.append(MOONBOARD_VERSION_DICT[boulder["version"]])
         return vector
 
     def __len__(self):
@@ -238,6 +243,59 @@ class BoulderClassifier(nn.Module):
         out, _ = self.lstm(x)
         out = self.fc(out[:, -1, :])  # Take the last time step of the lstm
         return out
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for binary/multi-label classification with logits.
+    Args:
+        gamma (float): focusing parameter (default: 2.0)
+        alpha (float or None): balancing parameter (default: None)
+        reduction (str): 'mean' or 'sum' (default: 'mean')
+    """
+    def __init__(self, gamma=2.0, alpha=None, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.reduction = reduction
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, input, target):
+        # We use binary cross-entropy with logits to compute the baseline loss for each sample.
+        bce_loss = self.bce(input, target)
+        # probas = torch.sigmoid(input)
+        
+        # We convert BCE_loss to pt, which is the model’s predicted probability for the true class. This becomes the key to calculating how “hard” each sample is.
+        # if target = 1 then pt = proba
+        # if target = 0 then pt = 1 - proba
+        pt = torch.exp(-bce_loss) # exactly equivalent to:
+        # pt = probas * target + (1 - probas) * (1 - target)
+        
+        # focal_weight amplifies the loss on harder samples,
+        # gamma == 0 => no focal loss, just BCE
+        focal_weight = (1 - pt) ** self.gamma
+        # and alpha balances class importance, letting you decide how much priority to give minority classes.
+        alpha_weight = 1
+        if self.alpha is not None:
+            #
+            # Convention focal loss (Lin et al., 2017) :
+            #   alpha est le poids appliqué aux exemples où target=1 (positifs, franchissement de seuil)
+            #   1-alpha est le poids appliqué aux exemples où target=0 (négatifs, non franchissement)
+            #
+            # Donc :
+            #   - Si alpha > 0.5, on donne PLUS de poids aux 1 (minoritaires)
+            #   - Si alpha < 0.5, on donne PLUS de poids aux 0 (majoritaires)
+            #
+            # Pour CORAL, si les 1 sont rares (franchissement de seuil), il faut alpha > 0.5
+            #
+            alpha_weight = self.alpha * target + (1 - self.alpha) * (1 - target)
+        loss = alpha_weight * focal_weight * bce_loss
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
 
 
 def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, outputs_suffix):
@@ -292,38 +350,31 @@ def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_
     plt.close()
 
 
-def train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False) -> dict[str, float | dict[str, float]]:
+def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False, focal_gamma: float = 2.0, focal_alpha: float = None, early_stopping: bool = True, input_size=11) -> dict[str, float | dict[str, float]]:
     """
     Evaluate a set of hyperparameters and return key metrics for optimization.
 
     Returns:
         dict: Dictionary containing validation accuracy, loss, MAE, and best epoch
     """
-    holds_data = commons.load_holds_data()
     print(f"Training model with hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}, learning_rate={learning_rate}, weight_decay_factor={weight_decay_factor}, num_epochs={num_epochs}")
 
     # Initialize model and dataset
-    model = BoulderClassifier(input_size=11, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
+    model = BoulderClassifier(input_size=input_size, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
     model.to(device)
 
-    train_loader, val_loader = initialize_dataset(batch_size=batch_size, holds_data=holds_data)
+    train_loader, val_loader = initialize_dataloader(dataset, batch_size=batch_size)
 
     # Training setup
 
     # Define loss function
-    # Using BCEWithLogitsLoss for binary classification with logits output
-    # This is suitable for ordinal regression where we treat each threshold as a binary classification problem.
-    # It computes the binary cross-entropy loss between the predicted logits and the target labels.
-    # It combines a sigmoid layer and the binary cross-entropy loss in one single class.
-    # This is more numerically stable than using a plain Sigmoid followed by a BCELoss loss.
-    # It is used for multi-label classification problems where each class is independent.
-    loss_func = nn.BCEWithLogitsLoss()
+    loss_func = FocalLoss(gamma=focal_gamma, alpha=focal_alpha)
 
     # weight decay is set to 10% of the learning rate.
     # This is a common practice in deep learning to prevent overfitting
     # and encourage generalization.
     # It helps to regularize the model by penalizing large weights.
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=learning_rate * weight_decay_factor)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=learning_rate * weight_decay_factor)
 
     best_accuracy = 0.0
     best_mae = float('inf')  # MAE should be minimized
@@ -404,14 +455,15 @@ def train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay
             best_epoch = epoch + 1
 
         # Early stopping based on MAE improvement
-        if epoch - best_epoch > 20:
+        if epoch - best_epoch > 20 and early_stopping:
             print(f"Early stopping at epoch {epoch + 1} (no MAE improvement)")
             break
     if not search_mode:
         outputs_suffix = f"lr_{learning_rate}-epochs_{epoch+1}-hs_{hidden_size}-mae_{best_mae:.3f}-acc_{best_accuracy:.2f}"
         print(f"Training complete. Best MAE: {best_mae:.3f} with exact accuracy {best_accuracy:.2f}% and close accuracy {best_close_accuracy:.2f}% at epoch {best_epoch}")
         # Save the model
-        model_path = f"boulder_classifier-{outputs_suffix}.pth"
+        prefix = "" if input_size == 11 else "ALLMOON-"
+        model_path = f"{prefix}boulder_classifier-{outputs_suffix}.pth"
         torch.save(model.state_dict(), model_path)
         print(f"Model saved as {model_path}")
         plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, outputs_suffix)
@@ -424,11 +476,13 @@ def train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay
         'hidden_size': hidden_size,
         'batch_size': batch_size,
         'learning_rate': learning_rate,
-        'weight_decay_factor': weight_decay_factor
+        'weight_decay_factor': weight_decay_factor,
+        'focal_gamma': focal_gamma,
+        'focal_alpha': focal_alpha
     }
 
 
-def hyperparameter_search():
+def hyperparameter_search(dataset, input_size=11):
     """
     Example hyperparameter search function.
     You can use this as a starting point for grid search or random search.
@@ -436,15 +490,22 @@ def hyperparameter_search():
     # Define hyperparameter ranges
     hidden_sizes = [64, 128, 256, 512]
     batch_sizes = [32, 64, 128]
-    learning_rates = [1e-4, 1e-3, 1e-2]
-    weight_decay_factors = [0, 0.01, 0.05, 0.1, 0.2]
+    learning_rates = [1e-5, 1e-4, 1e-3]
+    # weight_decay_factors = [0, 0.01, 0.05, 0.1]
+    # hidden_sizes = [512]
+    # batch_sizes = [64]
+    # learning_rates = [1e-3]
+    weight_decay_factors = [0]
+    focal_gammas = [0, 1.0, 2.0, 3.0, 4.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
+    focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]  # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
+    
 
     best_config = {}
     best_mae = float('inf')  # MAE should be minimized, not maximized
     results = []
 
     # Initialize CSV file with headers and read existing results
-    csv_filename = "hyperparameter_results.csv"
+    csv_filename = "hyperparameter_results.csv" if input_size == 11 else f"hyperparameter_results_allmoon.csv"
     tested_configs = set()
 
     if os.path.exists(csv_filename) and os.path.getsize(csv_filename) > 0:
@@ -457,7 +518,9 @@ def hyperparameter_search():
                     int(row['hidden_size']),
                     int(row['batch_size']),
                     float(row['learning_rate']),
-                    float(row['weight_decay_factor'])
+                    float(row['weight_decay_factor']),
+                    float(row['focal_gamma']),
+                    None if row['focal_alpha'] in ('', 'None') else float(row['focal_alpha'])
                 )
                 tested_configs.add(config_tuple)
 
@@ -470,6 +533,8 @@ def hyperparameter_search():
                         'batch_size': int(row['batch_size']),
                         'learning_rate': float(row['learning_rate']),
                         'weight_decay_factor': float(row['weight_decay_factor']),
+                        'focal_gamma': float(row['focal_gamma']),
+                        'focal_alpha': None if row['focal_alpha'] in ('', 'None') else float(row['focal_alpha']),
                         'mae': mae,
                         'validation_accuracy': float(row['validation_accuracy']),
                         'validation_close_accuracy': float(row['validation_close_accuracy']),
@@ -485,6 +550,7 @@ def hyperparameter_search():
             writer = csv.writer(f)
             writer.writerow([
                 "hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
+                "focal_gamma", "focal_alpha",
                 "mae", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
             ])
 
@@ -492,64 +558,82 @@ def hyperparameter_search():
     print("Primary metric: MAE (lower is better)")
     print("Secondary metrics: Close accuracy (±1 grade), Exact accuracy")
 
-    for hidden_size in hidden_sizes:
-        for batch_size in batch_sizes:
-            for learning_rate in learning_rates:
-                for weight_decay_factor in weight_decay_factors:
-                    # Check if this configuration was already tested
-                    config_tuple = (hidden_size, batch_size, learning_rate, weight_decay_factor)
-                    if config_tuple in tested_configs:
-                        print(f"Skipping already tested configuration: {config_tuple}")
-                        continue
+    try:
+        for hidden_size in hidden_sizes:
+            for batch_size in batch_sizes:
+                for learning_rate in learning_rates:
+                    for weight_decay_factor in weight_decay_factors:
+                        for focal_gamma in focal_gammas:
+                            for focal_alpha in focal_alphas:
+                                config_tuple = (hidden_size, batch_size, learning_rate, weight_decay_factor, focal_gamma, focal_alpha)
+                                if config_tuple in tested_configs:
+                                    print(f"Skipping already tested configuration: {config_tuple}")
+                                    continue
 
-                    config = {
-                        'hidden_size': hidden_size,
-                        'batch_size': batch_size,
-                        'learning_rate': learning_rate,
-                        'weight_decay_factor': weight_decay_factor
-                    }
-                    print(f"\nTesting configuration: {config}")
-                    result = train_model(num_epochs=900, search_mode=True, **config)
-                    results.append(result)
+                                config = {
+                                    'hidden_size': hidden_size,
+                                    'batch_size': batch_size,
+                                    'learning_rate': learning_rate,
+                                    'weight_decay_factor': weight_decay_factor,
+                                    'focal_gamma': focal_gamma,
+                                    'focal_alpha': focal_alpha
+                                }
+                                print(f"\nTesting configuration: {config}")
+                                result = train_model(dataset, num_epochs=900, search_mode=True, **config)
+                                results.append(result)
 
-                    # Save result to CSV immediately after each configuration
-                    with open(csv_filename, "a", newline='') as f:
-                        writer = csv.writer(f)
-                        writer.writerow([
-                            result['hidden_size'],
-                            result['batch_size'],
-                            result['learning_rate'],
-                            result['weight_decay_factor'],
-                            result['mae'],
-                            result['validation_accuracy'],
-                            result['validation_close_accuracy'],
-                            result['validation_loss'],
-                            result['best_epoch']
-                        ])
+                                # Save result to CSV immediately after each configuration
+                                with open(csv_filename, "a", newline='') as f:
+                                    writer = csv.writer(f)
+                                    writer.writerow([
+                                        hidden_size,
+                                        batch_size,
+                                        learning_rate,
+                                        weight_decay_factor,
+                                        focal_gamma,
+                                        focal_alpha,
+                                        result['mae'],
+                                        result['validation_accuracy'],
+                                        result['validation_close_accuracy'],
+                                        result['validation_loss'],
+                                        result['best_epoch']
+                                    ])
 
-                    # Track best configuration by MAE (lower is better)
-                    if result['mae'] < best_mae:
-                        best_mae = result['mae']
-                        best_config = result
+                                # Track best configuration by MAE (lower is better)
+                                if result['mae'] < best_mae:
+                                    best_mae = result['mae']
+                                    best_config = result
 
-                    print(f"MAE: {result['mae']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
+                                print(f"MAE: {result['mae']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
+    except KeyboardInterrupt:
+        print("\nRecherche interrompue par l'utilisateur (Ctrl-C).\nMeilleure configuration trouvée jusqu'ici :")
+        print(f"Best MAE: {best_config['mae']:.3f}")
+        print(f"Exact Accuracy: {best_config['validation_accuracy']:.2f}%, Close Accuracy: {best_config['validation_close_accuracy']:.2f}%")
+        print(f"Hidden Size: {best_config['hidden_size']}, Batch Size: {best_config['batch_size']}")
+        print(f"Learning Rate: {best_config['learning_rate']}, Weight Decay: {best_config['weight_decay_factor']}")
+        print(f"Focal Gamma: {best_config['focal_gamma']}, Focal Alpha: {best_config['focal_alpha']}")
+        return results, best_config
 
     print(f"\nBest configuration saved to {csv_filename}")
     print(f"Best MAE: {best_config['mae']:.3f}")
     print(f"Exact Accuracy: {best_config['validation_accuracy']:.2f}%, Close Accuracy: {best_config['validation_close_accuracy']:.2f}%")
     print(f"Hidden Size: {best_config['hidden_size']}, Batch Size: {best_config['batch_size']}")
     print(f"Learning Rate: {best_config['learning_rate']}, Weight Decay: {best_config['weight_decay_factor']}")
+    print(f"Focal Gamma: {best_config['focal_gamma']}, Focal Alpha: {best_config['focal_alpha']}")
 
     return results, best_config
 
-
-def initialize_dataset(batch_size=128, holds_data=None):
+def loading_dataset(holds_data=None):
     print("Loading dataset...")
     dataset = commons.load_boulders_from_dataset()
     print(f"Loaded {len(dataset)} boulders from dataset, filtering...")
     filtered_dataset = filter_dataset(dataset)
     print(f"Filtered dataset now {len(filtered_dataset)} boulders, splitting into train (75%)/val (25%) sets...")
-    dataset = BoulderDataset(filtered_dataset, holds_data)
+    dataset = BoulderDataset(filtered_dataset, {"2019": holds_data})
+    return dataset
+    
+
+def initialize_dataloader(dataset, batch_size=128):
     train_size = int(0.75 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -577,13 +661,13 @@ def prediction2labelindex(pred: np.ndarray) -> int:
 # Predicting Boulder Grade
 ######################
 
-def predict_boulder_grade(boulder, model_path):
+def predict_boulder_grade(boulder, model_path, input_size=11, version="2019"):
     """
     Given a boulder dict, loads the saved model and returns the predicted grade string.
     """
     # Vectorize boulder
-    holds_data = commons.load_holds_data()
-    boulder_vector = BoulderDataset.vectorize_boulder(boulder, 11, holds_data)
+    holds_data = commons.load_holds_data(version)
+    boulder_vector = BoulderDataset.vectorize_boulder(boulder, input_size, {"2019": holds_data})
     x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 11)
     # Extract hidden_size from model_path if present
     hidden_size = 128  # default
@@ -592,7 +676,7 @@ def predict_boulder_grade(boulder, model_path):
         hidden_size = int(match.group(1))
     # Create model with correct hidden_size
     print(f"Loading model from {model_path} with hidden size {hidden_size}")
-    model = BoulderClassifier(input_size=11, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
+    model = BoulderClassifier(input_size=input_size, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
@@ -624,7 +708,9 @@ def predict_boulder_grade(boulder, model_path):
 
 def main(phase, boulder_json = None, model_path = None, boulder_object = None):
     if phase == "train":
-        train_model(hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=500)
+        holds_data = commons.load_holds_data()
+        dataset = loading_dataset(holds_data)
+        train_model(dataset, hidden_size=512, batch_size=64, learning_rate=1e-3, weight_decay_factor=0, num_epochs=52, focal_gamma=5.0, focal_alpha=0.75, early_stopping=True)
     elif phase == "predict":
         boulder = boulder_object
         if boulder_json:
@@ -634,7 +720,10 @@ def main(phase, boulder_json = None, model_path = None, boulder_object = None):
             return pred_grade, prob_percent
         print(f"Predicted grade: {pred_grade}, Probability: {prob_percent:.2f}%")
     elif phase == "search":
-        results, best_config = hyperparameter_search()
+        holds_data = commons.load_holds_data()
+        dataset = loading_dataset(holds_data)
+        results, best_config = hyperparameter_search(dataset)
 
 if __name__ == "__main__":
     main(*sys.argv[1:])
+

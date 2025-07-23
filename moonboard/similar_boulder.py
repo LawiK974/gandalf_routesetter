@@ -45,7 +45,7 @@ def load_boulders_from_dataset(file_path):
 def main(boulder: str):
     boulder = json.loads(boulder.replace("'", "\"")) # expected format: ["A1", "B2", "C3"]
     boulder = commons.sort_boulder_holds(boulder)
-    boulder_list = load_boulders_from_dataset(commons.DATASET_PATH)
+    boulder_list = load_boulders_from_dataset(commons.DATASET_PATH["2019"])
     similar_boulder, score = similar_boulders(boulder, boulder_list)
 
     if similar_boulder:

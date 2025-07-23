@@ -26,7 +26,7 @@ def generate_boulder():
         hold_types = None
     try:
         boulder = setter.get_boulder(span=span, hold_types=hold_types)
-        similar_boulders, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH))
+        similar_boulders, score = sb.similar_boulders(boulder, sb.load_boulders_from_dataset(commons.DATASET_PATH['2019']))
         return {
             "boulder": ','.join(boulder),  # Convert holds to comma-separated string
             "score": f"{score*100:.2f}%",
@@ -60,8 +60,9 @@ def get_beta():
         best_betas = beta.main(span, boulder)
         return {"betas": best_betas, "error": None}
     except Exception as e:
+        # raise e  # Re-raise the exception to be caught by the Flask error handler
         return {"betas": [], "error": str(e)}, 500
-    
+
 import os
 
 @app.route("/predict-grade", methods=["POST"])
@@ -76,37 +77,27 @@ def predict_grade():
     model_files = [f for f in os.listdir(model_dir) if f.endswith('.pth')]
     if not model_files:
         return {"error": "No trained model found."}, 500
-    simple_model = "beta_classifier-lr_0.001-epochs_50-hs_128-acc_68.84-loss_0.1168.pth"
-    complex_model = "beta_classifier-lr_0.001-epochs_250-hs_512-acc_81.43-loss_0.160.pth"
-    # model_files.sort(key=lambda x: float(x.split('_')[-1].replace('.pth', '')), reverse=True)  # get the most recently created model
-    # print(f"Using model: {model_files[0]}")
-    # model_files.sort(key=lambda x: os.path.getctime(os.path.join(model_dir, x)), reverse=True)  # get the most recently created model
+    simple_model = "boulder_classifier-lr_0.001-epochs_52-hs_512-mae_0.288-acc_82.08.pth"
+    # complex_model = "beta_classifier-lr_0.001-epochs_250-hs_512-acc_81.43-loss_0.160.pth"
     simple_model = os.path.join(model_dir, simple_model)
-    complex_model = os.path.join(model_dir, complex_model)
+    # complex_model = os.path.join(model_dir, complex_model)
     # Build a fake boulder dict for prediction
     start = boulder[:2] if int(boulder[2][1:]) < 6 else boulder[:1]
     boulder_dict = {
         "holds": boulder,
         "start": start,
         "end": [boulder[-1]],
-        # # Add dummy values for required fields
-        # "userGrade": None,
-        # "grade": None,
-        # "method": "Feet follow hands",
-        # "setter": "AI",
-        # "rating": 5,
-        # "isBenchmark": False
+        "version": "2019"  # Default version, can be changed if needed
     }
     try:
         simple_pred_grade, simple_prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=simple_model)
-        complex_pred_grade, complex_prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=complex_model)
+        # complex_pred_grade, complex_prob_percent = supergrader.main("predict", boulder_object=boulder_dict, model_path=complex_model)
         return {
             "simple_pred": simple_pred_grade,
             "simple_probability": simple_prob_percent,
-            "complex_pred": complex_pred_grade,
-            "complex_probability": complex_prob_percent,
+            "complex_pred": "N/A",
+            "complex_probability": "N/A",
             "error": None
         }
     except Exception as e:
-        raise e
         return {"grade": '', "probability": '', "error": str(e)}, 500

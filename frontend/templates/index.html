@@ -6,7 +6,7 @@
 
 {% block content %}
 <div class="container d-flex justify-content-evenly flex-wrap">
-    <div class="text-center d-inline-block">
+    <div class="container text-center d-inline-block">
         <h2>Boulder generator</h2>
         <label for="span-slider" class="form-label">Climber Span: <span id="span-value">170</span> cm</label>
         <input type="range" class="form-range" min="150" max="200" step="1" value="170" id="span-slider">
@@ -259,7 +259,7 @@
                         html += `<div><b>Beta:</b> `;
                         beta["beta"].forEach((hold, j) => {
                             html += `<span class="beta-hold" data-hold="${hold}" style="cursor:pointer; padding:2px 4px; border-radius:4px;">${hold}</span>`;
-                            if (j < beta["beta"].length - 1) html += '=>';
+                            if (j < beta["beta"].length - 1) html += ',';
                         });
                         html += `</div></li>`;
                     } else {

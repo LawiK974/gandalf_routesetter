@@ -3,8 +3,16 @@ import numpy as np
 import csv
 import json
 SCRIPT_PATH = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(SCRIPT_PATH, "../dataset/problems.json")
-HOLDS_EVAL_PATH = os.path.join(SCRIPT_PATH, "../dataset/2019.csv")
+DATASET_PATH = {
+  "2019": os.path.join(SCRIPT_PATH, "../dataset/2019.json"),
+  "2016": os.path.join(SCRIPT_PATH, "../dataset/2016.json"),
+  "2017": os.path.join(SCRIPT_PATH, "../dataset/2017.json"),
+}
+HOLDS_EVAL_PATH = {
+  "2019": os.path.join(SCRIPT_PATH, "../dataset/2019.csv"),
+  "2016": os.path.join(SCRIPT_PATH, "../dataset/2016.csv"),
+  "2017": os.path.join(SCRIPT_PATH, "../dataset/2017.csv"),
+}
 ENVERGURE = 170  # Default span for the beta search
 INSERT_DISTANCE = 20  # cm entre les prises
 SIZE = (18, 11)  # moonboard classique
@@ -66,9 +74,9 @@ def get_hold_difficulty(hand: str, hold_data: dict) -> float:
     return hold_difficulty / max_points * 14 + 1  # Normalize to a scale of 1 to 15, as per the grading system
 
 
-def load_holds_data():
+def load_holds_data(version="2019"):
     """ Loads holds data from the dataset."""
-    with open(HOLDS_EVAL_PATH, 'r') as file:
+    with open(HOLDS_EVAL_PATH[version], 'r') as file:
         reader = csv.DictReader(file)
         dataset = {row["hold"]: row for row in reader}
     new_dataset = dataset.copy()  # Create a copy of the dataset to avoid modifying the original
@@ -92,10 +100,10 @@ def hold_name_to_pos(hold_name: str) -> tuple[int, int]:
     return (row, col)
 
 
-def load_boulders_from_dataset():
+def load_boulders_from_dataset(dataset_path=DATASET_PATH, version="2019"):
     """Load boulders from a JSON file."""
     boulder_list = []
-    with open(DATASET_PATH, 'r') as file:
+    with open(dataset_path[version], 'r') as file:
         dataset = json.load(file)
     for boulder in dataset["data"]:
         starting_holds = [hold["description"] for hold in boulder["moves"] if hold["isStart"]]
@@ -113,5 +121,6 @@ def load_boulders_from_dataset():
             "repeats": boulder["repeats"],
             "isBenchmark": boulder["isBenchmark"],
             "method": boulder["method"],
+            "version": version
         })
     return boulder_list
