@@ -9,6 +9,7 @@ try:
 except:
     from . import commons, grader
 
+
 def loading_dataset():
     print("Loading dataset...")
     dataset = []
@@ -22,6 +23,7 @@ def loading_dataset():
     dataset = grader.BoulderDataset(filtered_dataset, holds_data)
     return dataset
 
+
 def main(phase, boulder_json = None, model_path = None, boulder_object = None):
     input_size = 12  # Default input size for the model
     if phase == "train":
@@ -31,13 +33,14 @@ def main(phase, boulder_json = None, model_path = None, boulder_object = None):
         boulder = boulder_object
         if boulder_json:
             boulder = json.load(boulder_json)
-        pred_grade, prob_percent = grader.predict_boulder_grade(boulder, model_path, input_size=input_size, version=boulder["version"])
+        pred_grade = grader.predict_boulder_grade(boulder, model_path, input_size=input_size, version = boulder["version"])
         if boulder_object:
-            return pred_grade, prob_percent
-        print(f"Predicted grade: {pred_grade}, Probability: {prob_percent:.2f}%")
+            return pred_grade
+        print(f"Predicted grade: {pred_grade}")
     elif phase == "search":
         dataset = loading_dataset()
         results, best_config = grader.hyperparameter_search(dataset, input_size=input_size)
+
 
 if __name__ == "__main__":
     main(*sys.argv[1:])

@@ -90,7 +90,7 @@ ORIENTATION_DICT = {
 
 MOONBOARD_VERSION_DICT = {
     "2016": 1,
-    "2017": 2, 
+    "2017": 2,
     "2019": 3,
 }
 
@@ -123,11 +123,12 @@ def filter_dataset(dataset):
         and boulder["grade"] not in ["8B", "8B+"] # ignore 8B+ grades
         and boulder["userGrade"] not in ["8B", "8B+"] # ignore 8B+ grades
         and (
-            boulder['setter'] in list_benchmark_setters # benchmark setters
+            boulder['setter'] in list_benchmark_setters  # benchmark setters
             or (
-                boulder["userGrade"] is not None # user grade is set
+                boulder["userGrade"] is not None  # user grade is set
                 and (not has_too_much_holds_together(boulder['holds']) or (boulder["userGrade"] or boulder["grade"]) > "6C+")
                 and boulder["rating"] > (3 if (boulder["userGrade"] or boulder["grade"]) < "6C+" else 1)
+                and (boulder["repeats"] > 20 or (boulder["userGrade"] or boulder["grade"]) > "6C+")
             )
         )
     ), dataset))
@@ -264,13 +265,13 @@ class FocalLoss(nn.Module):
         # We use binary cross-entropy with logits to compute the baseline loss for each sample.
         bce_loss = self.bce(input, target)
         # probas = torch.sigmoid(input)
-        
+
         # We convert BCE_loss to pt, which is the model’s predicted probability for the true class. This becomes the key to calculating how “hard” each sample is.
         # if target = 1 then pt = proba
         # if target = 0 then pt = 1 - proba
         pt = torch.exp(-bce_loss) # exactly equivalent to:
         # pt = probas * target + (1 - probas) * (1 - target)
-        
+
         # focal_weight amplifies the loss on harder samples,
         # gamma == 0 => no focal loss, just BCE
         focal_weight = (1 - pt) ** self.gamma
@@ -498,7 +499,6 @@ def hyperparameter_search(dataset, input_size=11):
     weight_decay_factors = [0]
     focal_gammas = [0, 1.0, 2.0, 3.0, 4.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
     focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]  # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
-    
 
     best_config = {}
     best_mae = float('inf')  # MAE should be minimized, not maximized
@@ -623,6 +623,7 @@ def hyperparameter_search(dataset, input_size=11):
 
     return results, best_config
 
+
 def loading_dataset(holds_data=None):
     print("Loading dataset...")
     dataset = commons.load_boulders_from_dataset()
@@ -631,7 +632,7 @@ def loading_dataset(holds_data=None):
     print(f"Filtered dataset now {len(filtered_dataset)} boulders, splitting into train (75%)/val (25%) sets...")
     dataset = BoulderDataset(filtered_dataset, {"2019": holds_data})
     return dataset
-    
+
 
 def initialize_dataloader(dataset, batch_size=128):
     train_size = int(0.75 * len(dataset))
@@ -657,49 +658,80 @@ def prediction2labelindex(pred: np.ndarray) -> int:
     return (pred > 0.5).cumprod(axis=1).sum(axis=1)
 
 
+def prediction2probadist(threshold_probs: np.ndarray) -> dict[str, float]:
+    """
+    """
+    # pred = np.asarray(pred)
+    # if pred.ndim == 1:
+    #     pred = pred.reshape(1, -1)
+    # Convert CORAL threshold probabilities to class probabilities
+    grade_probabilities = {}
+    grade_keys = list(GRADE_DICT.keys())
+
+    for i, grade in enumerate(grade_keys):
+        if i == 0:
+            # First grade: probability that no thresholds are passed
+            prob = 1.0 - threshold_probs[0]
+        elif i == len(grade_keys) - 1:
+            # Last grade: probability that all thresholds are passed
+            prob = threshold_probs[-1]
+            for j in range(len(threshold_probs) - 1):
+                prob *= threshold_probs[j]
+        else:
+            # Middle grades: probability that exactly i thresholds are passed
+            # P(exactly i thresholds) = P(first i thresholds) * P(not (i+1)th threshold)
+            prob = (1.0 - threshold_probs[i]) if i < len(threshold_probs) else 0.0
+            for j in range(i):
+                prob *= threshold_probs[j]
+
+        grade_probabilities[grade] = float(prob)
+
+    # Normalize probabilities to sum to 1
+    total_prob = sum(grade_probabilities.values())
+    if total_prob > 0:
+        for grade in grade_probabilities:
+            grade_probabilities[grade] /= total_prob
+
+    return grade_probabilities
+
+
 #####################
 # Predicting Boulder Grade
 ######################
 
 def predict_boulder_grade(boulder, model_path, input_size=11, version="2019"):
     """
-    Given a boulder dict, loads the saved model and returns the predicted grade string.
+    Given a boulder dict, loads the saved model and returns probabilities for each grade.
+
+    Returns:
+        dict: Dictionary mapping grade names to their probabilities
     """
     # Vectorize boulder
     holds_data = commons.load_holds_data(version)
     boulder_vector = BoulderDataset.vectorize_boulder(boulder, input_size, {"2019": holds_data})
-    x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, 11)
+    x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, input_size)
+
     # Extract hidden_size from model_path if present
     hidden_size = 128  # default
     match = re.search(r"-hs_(\d+)", model_path)
     if match:
         hidden_size = int(match.group(1))
+
     # Create model with correct hidden_size
     print(f"Loading model from {model_path} with hidden size {hidden_size}")
     model = BoulderClassifier(input_size=input_size, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
+
     with torch.no_grad():
         logits = model(x)
-        probs = torch.sigmoid(logits).cpu().numpy()[0]
-        # CORAL: find the number of thresholds passed (i.e., how many outputs > 0.5)
-        pred_idx = prediction2labelindex(probs)
-        # pred_idx is a 1-element array, extract scalar
-        if isinstance(pred_idx, np.ndarray):
-            pred_idx = int(pred_idx[0])
-        grade_keys = list(GRADE_DICT.keys())
-        pred_grade = grade_keys[pred_idx]
-        # Probability for the predicted grade: min(prob) of thresholds passed,
-        # or 1-prob of first not passed
-        if pred_idx == 0:
-            prob = 1.0 - probs[0]
-        elif pred_idx == len(probs):
-            prob = probs[-1]
-        else:
-            prob = min(probs[:pred_idx])
-        prob_percent = float(prob) * 100
-    return pred_grade, prob_percent
+        threshold_probs = torch.sigmoid(logits).cpu().numpy()[0]  # Probabilities for each threshold
+        grade_probabilities = prediction2probadist(threshold_probs)  # Convert to grade probabilities
+    # Find the grade with highest probability
+    # pred_grade = max(grade_probabilities.items(), key=lambda x: x[1])[0]
+    # prob_percent = grade_probabilities[pred_grade] * 100
+    return grade_probabilities
 
 ################
 # Main function to run the training
@@ -715,15 +747,15 @@ def main(phase, boulder_json = None, model_path = None, boulder_object = None):
         boulder = boulder_object
         if boulder_json:
             boulder = json.load(boulder_json)
-        pred_grade, prob_percent = predict_boulder_grade(boulder, model_path)
+        pred_grade = predict_boulder_grade(boulder, model_path)
         if boulder_object:
-            return pred_grade, prob_percent
-        print(f"Predicted grade: {pred_grade}, Probability: {prob_percent:.2f}%")
+            return pred_grade
+        print(f"Predicted grades: {pred_grade}")
     elif phase == "search":
         holds_data = commons.load_holds_data()
         dataset = loading_dataset(holds_data)
         results, best_config = hyperparameter_search(dataset)
 
+
 if __name__ == "__main__":
     main(*sys.argv[1:])
-

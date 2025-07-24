@@ -5,9 +5,9 @@ import moonboard.setter as setter
 import moonboard.similar_boulder as sb
 import moonboard.commons as commons
 import moonboard.grader as grader
-import json
 from unique_names_generator import get_random_name
 from unique_names_generator.data import ADJECTIVES, ANIMALS, COLORS, COUNTRIES, LANGUAGES, NAMES, STAR_WARS
+import os
 
 app = Flask(__name__)
 
@@ -41,6 +41,7 @@ def generate_boulder():
             "error": str(e)
         }, 500
 
+
 @app.route("/generate-name")
 def generate_name():
     data_left = ADJECTIVES + COLORS + LANGUAGES
@@ -48,6 +49,7 @@ def generate_name():
     name = get_random_name(combo=[data_left, data_right])
     print(f"Generated name: {name}")
     return {"name": name}
+
 
 @app.route("/get-beta")
 def get_beta():
@@ -63,7 +65,6 @@ def get_beta():
         # raise e  # Re-raise the exception to be caught by the Flask error handler
         return {"betas": [], "error": str(e)}, 500
 
-import os
 
 @app.route("/predict-grade", methods=["POST"])
 def predict_grade():
@@ -90,13 +91,11 @@ def predict_grade():
         "version": "2019"  # Default version, can be changed if needed
     }
     try:
-        simple_pred_grade, simple_prob_percent = grader.main("predict", boulder_object=boulder_dict, model_path=simple_model)
+        simple_pred = grader.main("predict", boulder_object=boulder_dict, model_path=simple_model)
         # complex_pred_grade, complex_prob_percent = supergrader.main("predict", boulder_object=boulder_dict, model_path=complex_model)
         return {
-            "simple_pred": simple_pred_grade,
-            "simple_probability": simple_prob_percent,
+            "simple_pred": simple_pred,
             "complex_pred": "N/A",
-            "complex_probability": "N/A",
             "error": None
         }
     except Exception as e:
