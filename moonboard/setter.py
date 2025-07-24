@@ -12,21 +12,22 @@ except:
 SIZE = (18, 11)  # moonboard classique
 # SIZE = (12, 11)  # mini moonboard
 INSERT_DISTANCE = 20  # cm entre les prises
-board = [[(x,y) for y in range(SIZE[1])] for x in range(SIZE[0])]
+board = [[(x, y) for y in range(SIZE[1])] for x in range(SIZE[0])]
 ENVERGURE = 170
+
 
 def get_weight_gaussian(distance: float, mu: float = (ENVERGURE - 22)/2, sigma: float = (ENVERGURE - 22)/4) -> float:
     """ Returns a weight according to a gaussian distribution."""
     # par défaut mu est la moitié de l'envergure
     # et sigma est un quart de l'envergure (68% des prises seront entre mu-sigma et mu+sigma)
-    return stats.norm.pdf(distance, loc=mu, scale=sigma)
+    return float(stats.norm.pdf(distance, loc=mu, scale=sigma))
+
 
 def get_boulder(span: int = ENVERGURE, hold_types: list = None) -> list[str]:
     """ Converts a list of holds to a string representation. Optionally filter by hold_types."""
     holds_data = commons.load_holds_data() if hold_types else None
     boulder = get_next_hold(span=span, hold_types=hold_types, holds_data=holds_data)
     return [chr(65 + y) + str(x+1) for x,y in boulder]
-
 
 
 def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None, start: bool = False) -> list[tuple[int, int]]:
@@ -48,9 +49,9 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
         weight_list = []
         mu = (span - 22) / 2
         sigma = mu / 2
-        for row in board[previous[0]+1:6 if start else SIZE[0]]:
+        for row in board[:6] if start else board[previous[0] + 1:]:
             for new in row:
-                distance =  commons.get_distance_pos(previous, new)
+                distance = commons.get_distance_pos(previous, new)
                 # restriction a uniquement les prises au dessus de la precedente
                 # et a une distance inferieure à l'envergure
                 if distance < (span - 22):
@@ -67,6 +68,7 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
         start = False
     # on ajoute la prise courante à la liste des prises
     return [hold] + get_next_hold(hold, span, hold_types, holds_data, start=start)
+
 
 def main():
     """ Main function to generate a boulder problem."""

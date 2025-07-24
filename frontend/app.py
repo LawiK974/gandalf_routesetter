@@ -8,6 +8,7 @@ import moonboard.grader as grader
 from unique_names_generator import get_random_name
 from unique_names_generator.data import ADJECTIVES, ANIMALS, COLORS, COUNTRIES, LANGUAGES, NAMES, STAR_WARS
 import os
+import traceback
 
 app = Flask(__name__)
 
@@ -34,6 +35,7 @@ def generate_boulder():
             "error": None
         }
     except Exception as e:
+        traceback.print_exc()
         return {
             "boulder": '',
             "score": '',
@@ -63,7 +65,9 @@ def get_beta():
         return {"betas": best_betas, "error": None}
     except Exception as e:
         # raise e  # Re-raise the exception to be caught by the Flask error handler
+        traceback.print_exc()
         return {"betas": [], "error": str(e)}, 500
+    
 
 
 @app.route("/predict-grade", methods=["POST"])
@@ -99,4 +103,5 @@ def predict_grade():
             "error": None
         }
     except Exception as e:
+        traceback.print_exc()
         return {"grade": '', "probability": '', "error": str(e)}, 500

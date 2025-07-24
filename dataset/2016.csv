@@ -1,1 +1,4 @@
 X,Y,hold,type,texture,orientation,can_match
+7,6,H7,crimp,yellow,E,False
+9,13,J14,crimp,yellow,NW,False
+10,6,K7,crimp,yellow,NW,F

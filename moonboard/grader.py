@@ -119,9 +119,8 @@ def filter_dataset(dataset):
             list_benchmark_setters.add(boulder['setter'])
     filtered_dataset = list(filter(lambda boulder: (
         boulder['method'] == "Feet follow hands"
-        and len(boulder['holds']) >= 2 # at least 2 holds
-        and boulder["grade"] not in ["8B", "8B+"] # ignore 8B+ grades
-        and boulder["userGrade"] not in ["8B", "8B+"] # ignore 8B+ grades
+        and len(boulder['holds']) >= 2  # at least 2 holds
+        and (boulder["userGrade"] or boulder["grade"]) not in ["8B", "8B+"]  # ignore 8B+ grades
         and (
             boulder['setter'] in list_benchmark_setters  # benchmark setters
             or (
