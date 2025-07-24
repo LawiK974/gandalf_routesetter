@@ -492,11 +492,11 @@ def hyperparameter_search(dataset, input_size=11):
     hidden_sizes = [64, 128, 256, 512]
     batch_sizes = [32, 64, 128]
     learning_rates = [1e-5, 1e-4, 1e-3]
-    # weight_decay_factors = [0, 0.01, 0.05, 0.1]
+    weight_decay_factors = [0, 0.01, 0.05, 0.1]
     # hidden_sizes = [512]
     # batch_sizes = [64]
     # learning_rates = [1e-3]
-    weight_decay_factors = [0]
+    # weight_decay_factors = [0]
     focal_gammas = [0, 1.0, 2.0, 3.0, 4.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
     focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]  # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
 
