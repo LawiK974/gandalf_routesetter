@@ -488,16 +488,18 @@ def hyperparameter_search(dataset, input_size=11):
     You can use this as a starting point for grid search or random search.
     """
     # Define hyperparameter ranges
-    hidden_sizes = [64, 128, 256, 512]
+    hidden_sizes = [128, 256, 512]
     batch_sizes = [32, 64, 128]
-    learning_rates = [1e-5, 1e-4, 1e-3]
-    weight_decay_factors = [0, 0.01, 0.05, 0.1]
+    learning_rates = [1e-4, 1e-3]
+    weight_decay_factors = [0, 0.01, 0.1]
     # hidden_sizes = [512]
     # batch_sizes = [64]
     # learning_rates = [1e-3]
     # weight_decay_factors = [0]
     focal_gammas = [0, 1.0, 2.0, 3.0, 4.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
-    focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]  # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
+    # focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]
+    # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
+    focal_alphas = [None]
 
     best_config = {}
     best_mae = float('inf')  # MAE should be minimized, not maximized
@@ -557,6 +559,21 @@ def hyperparameter_search(dataset, input_size=11):
     print("Primary metric: MAE (lower is better)")
     print("Secondary metrics: Close accuracy (±1 grade), Exact accuracy")
 
+    # Calculate total number of configurations to test
+    total_configs = len(hidden_sizes) * len(batch_sizes) * len(learning_rates) * len(weight_decay_factors) * len(focal_gammas) * len(focal_alphas)
+    configs_tested = len(tested_configs)
+    configs_remaining = total_configs - configs_tested
+
+    print(f"Total configurations: {total_configs}")
+    print(f"Already tested: {configs_tested}")
+    print(f"Remaining to test: {configs_remaining}")
+
+    # Time tracking variables
+    import time
+    start_time = time.time()
+    config_times = []
+    configs_completed_this_session = 0
+
     try:
         for hidden_size in hidden_sizes:
             for batch_size in batch_sizes:
@@ -578,8 +595,18 @@ def hyperparameter_search(dataset, input_size=11):
                                     'focal_alpha': focal_alpha
                                 }
                                 print(f"\nTesting configuration: {config}")
+                                
+                                # Start timing this configuration
+                                config_start_time = time.time()
+                                
                                 result = train_model(dataset, num_epochs=900, search_mode=True, **config)
                                 results.append(result)
+
+                                # Calculate time taken for this configuration
+                                config_end_time = time.time()
+                                config_duration = config_end_time - config_start_time
+                                config_times.append(config_duration)
+                                configs_completed_this_session += 1
 
                                 # Save result to CSV immediately after each configuration
                                 with open(csv_filename, "a", newline='') as f:
@@ -604,6 +631,21 @@ def hyperparameter_search(dataset, input_size=11):
                                     best_config = result
 
                                 print(f"MAE: {result['mae']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
+                                
+                                # Calculate and display time estimates
+                                if config_times:
+                                    mean_time_per_config = sum(config_times) / len(config_times)
+                                    remaining_configs = configs_remaining - configs_completed_this_session
+                                    estimated_remaining_time = mean_time_per_config * remaining_configs
+                                    
+                                    # Convert to human readable format
+                                    hours = int(estimated_remaining_time // 3600)
+                                    minutes = int((estimated_remaining_time % 3600) // 60)
+                                    seconds = int(estimated_remaining_time % 60)
+                                    
+                                    print(f"Config took: {config_duration / 60:.1f} min | Avg: {mean_time_per_config / 60:.1f} min/config")
+                                    print(f"Estimated remaining time: {hours:02d}h {minutes:02d}m {seconds:02d}s ({remaining_configs} configs left)")
+                                    print("-" * 60)
     except KeyboardInterrupt:
         print("\nRecherche interrompue par l'utilisateur (Ctrl-C).\nMeilleure configuration trouvée jusqu'ici :")
         print(f"Best MAE: {best_config['mae']:.3f}")
