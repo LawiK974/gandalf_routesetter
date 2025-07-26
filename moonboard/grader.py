@@ -9,7 +9,6 @@ import re
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import sys
-import signal
 import json
 import csv
 try:
@@ -17,9 +16,11 @@ try:
     import sklearn.metrics as skmetrics
     import seaborn as sns
     import matplotlib.pyplot as plt
+    from collections import Counter
+    from collections import defaultdict
+    import random
 except:
     from . import commons
-from collections import Counter
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ##########################################
@@ -70,6 +71,7 @@ HOLD_TEXTURE_DICT = {
     "woodb": 4,
     "wooda": 5,
     "yellow": 6,
+    "red": 7,
 }
 
 CAN_MATCH_DICT = {
@@ -111,7 +113,7 @@ def has_too_much_holds_together(holds):
     return False
 
 
-def filter_dataset(dataset):
+def filter_dataset(dataset, version="2019"):
     """Filtre le dataset pour ne garder que les boulders avec des prises valides."""
     list_benchmark_setters = set()
     for boulder in dataset:
@@ -137,18 +139,13 @@ def filter_dataset(dataset):
         print(f"{grade}: {grade_counts[grade]}")
     mean_nb_boulder_per_grade = np.mean(list(grade_counts.values()))
     print(f"Mean number of boulders per grade: {mean_nb_boulder_per_grade:.2f}")
-    oversampled_dataset = oversample_dataset_by_grade(filtered_dataset)
-    grade_counts_after = Counter(b["userGrade"] or b["grade"] for b in oversampled_dataset)
-    print("Number of boulders per grade (after oversampling):")
-    for grade in sorted(grade_counts_after.keys()):
-        print(f"{grade}: {grade_counts_after[grade]}")
-    return oversampled_dataset
+    with open(commons.FILTERED_DATASET_PATH[version], "w") as f:
+        json.dump(filtered_dataset, f, indent=4)
+    return filtered_dataset
 
 
 # New function: oversample the dataset by duplicating samples from minority classes
 def oversample_dataset_by_grade(dataset):
-    from collections import defaultdict
-    import random
     grade_to_boulders = defaultdict(list)
     for b in dataset:
         grade = b["userGrade"] or b["grade"]
@@ -163,6 +160,10 @@ def oversample_dataset_by_grade(dataset):
         else:
             oversampled.extend(boulders)
     random.shuffle(oversampled)
+    grade_counts_after = Counter(b["userGrade"] or b["grade"] for b in oversampled)
+    print("Number of boulders per grade (after oversampling):")
+    for grade in sorted(grade_counts_after.keys()):
+        print(f"{grade}: {grade_counts_after[grade]}")
     return oversampled
 
 
@@ -298,7 +299,7 @@ class FocalLoss(nn.Module):
             return loss
 
 
-def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, outputs_suffix):
+def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list, outputs_suffix):
     """Plot training and validation loss, accuracy, MAE, and confusion matrix in a 2x2 grid."""
 
     # Create a figure with 2x2 subplots
@@ -327,10 +328,10 @@ def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_
 
     # Plot 3: Validation MAE
     plt.subplot(2, 2, 3)
-    plt.plot(val_mae_list, label='Validation MAE', color='red')
+    plt.plot(val_rmse_list, label='Validation RMSE', color='red')
     plt.xlabel('Epoch')
-    plt.ylabel('MAE')
-    plt.title('Validation Mean Absolute Error')
+    plt.ylabel('RMSE')
+    plt.title('Validation Root Mean Squared Error')
     plt.legend()
     plt.grid()
 
@@ -358,6 +359,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         dict: Dictionary containing validation accuracy, loss, MAE, and best epoch
     """
     print(f"Training model with hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}, learning_rate={learning_rate}, weight_decay_factor={weight_decay_factor}, num_epochs={num_epochs}")
+    prefix = "" if input_size == 11 else "ALLMOON-"
 
     # Initialize model and dataset
     model = BoulderClassifier(input_size=input_size, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
@@ -382,7 +384,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
     best_close_accuracy = 0.0
     best_loss = float('inf')
     best_epoch = 0
-    train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list = [], [], [], [], []
+    train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list = [], [], [], [], [], []
     all_true = []
     all_pred = []
 
@@ -398,7 +400,8 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
             optimizer.step()
             epoch_loss += loss.item()
         avg_loss = epoch_loss / (batch_count + 1)
-        train_loss.append(avg_loss)
+        if not search_mode:
+            train_loss.append(avg_loss)
 
         # Validation phase
         model.eval()
@@ -432,23 +435,24 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
                 total += grades.size(0)
                 mae_sum += np.abs(pred_idx - true_idx).sum()
                 mse_sum += ((pred_idx - true_idx) ** 2).sum()  # Mean Squared Error sum
-
-                # For confusion matrix: convert ordinal output to class index
-                all_true.extend(true_idx.tolist())
-                all_pred.extend(pred_idx.tolist())
+                if not search_mode:
+                    # For confusion matrix: convert ordinal output to class index
+                    all_true.extend(true_idx.tolist())
+                    all_pred.extend(pred_idx.tolist())
 
         avg_val_loss = val_epoch_loss / (val_batch_count + 1)
         exact_accuracy = 100.0 * correct / total if total > 0 else 0.0
         close_accuracy = 100.0 * close_correct / total if total > 0 else 0.0
         mae = mae_sum / total if total > 0 else 0.0
         rmse = np.sqrt(mse_sum / total) if total > 0 else 0.0
-        val_loss.append(avg_val_loss)
-        val_accuracy.append(exact_accuracy)
-        val_close_accuracy.append(close_accuracy)
-        val_mae_list.append(mae)
+        if not search_mode:
+            val_loss.append(avg_val_loss)
+            val_accuracy.append(exact_accuracy)
+            val_close_accuracy.append(close_accuracy)
+            val_mae_list.append(mae)
+            val_rmse_list.append(rmse)
 
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}")
-        print(f"    Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}, RMSE: {rmse:.3f}")
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}, Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}, RMSE: {rmse:.3f}")
 
         # Track best metrics - use MAE as primary metric (lower is better)
         if rmse < best_rmse:
@@ -458,20 +462,22 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
             best_close_accuracy = close_accuracy
             best_loss = avg_val_loss
             best_epoch = epoch + 1
+        if rmse <= 0.7:
+          torch.save(model.state_dict(), f"{prefix}tmp_rmse{rmse:.3f}_acc{exact_accuracy:.2f}.pth")
+                
 
         # Early stopping based on MAE improvement
         if epoch - best_epoch > 20 and early_stopping:
-            print(f"Early stopping at epoch {epoch + 1} (no MAE improvement)")
+            print(f"Early stopping at epoch {epoch + 1} (no RMSE improvement)")
             break
     if not search_mode:
         outputs_suffix = f"lr_{learning_rate}-epochs_{epoch+1}-hs_{hidden_size}-mae_{best_mae:.3f}-acc_{best_accuracy:.2f}"
-        print(f"Training complete. Best MAE: {best_mae:.3f} with exact accuracy {best_accuracy:.2f}% and close accuracy {best_close_accuracy:.2f}% at epoch {best_epoch}")
+        print(f"Training complete. Best RMSE: {best_rmse:.3f} with exact accuracy {best_accuracy:.2f}% and close accuracy {best_close_accuracy:.2f}% at epoch {best_epoch}")
         # Save the model
-        prefix = "" if input_size == 11 else "ALLMOON-"
         model_path = f"{prefix}boulder_classifier-{outputs_suffix}.pth"
         torch.save(model.state_dict(), model_path)
         print(f"Model saved as {model_path}")
-        plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, outputs_suffix)
+        plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list, outputs_suffix)
     return {
         'validation_accuracy': best_accuracy,
         'validation_close_accuracy': best_close_accuracy,
@@ -494,15 +500,15 @@ def hyperparameter_search(dataset, input_size=11):
     You can use this as a starting point for grid search or random search.
     """
     # Define hyperparameter ranges
-    hidden_sizes = [512, 768, 1024]  # Test a range of hidden sizes
+    hidden_sizes = [128, 256, 512, 768]  # Test a range of hidden sizes
     batch_sizes = [32, 64, 128]
-    learning_rates = [1e-4, 1e-3]
-    weight_decay_factors = [0, 0.01, 0.1]
+    learning_rates = [1e-3]
+    weight_decay_factors = [0, 0.1]
     # hidden_sizes = [512]
     # batch_sizes = [64]
     # learning_rates = [1e-3]
     # weight_decay_factors = [0]
-    focal_gammas = [0, 1.0, 2.0, 3.0, 4.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
+    focal_gammas = [0, 1.0, 3.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
     # focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]
     # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
     focal_alphas = [None]
@@ -712,13 +718,19 @@ def hyperparameter_search(dataset, input_size=11):
     return results, best_config
 
 
-def loading_dataset(holds_data=None):
+def loading_dataset(holds_data=None, version="2019"):
     print("Loading dataset...")
-    dataset = commons.load_boulders_from_dataset()
-    print(f"Loaded {len(dataset)} boulders from dataset, filtering...")
-    filtered_dataset = filter_dataset(dataset)
-    print(f"Filtered dataset now {len(filtered_dataset)} boulders, splitting into train (75%)/val (25%) sets...")
-    dataset = BoulderDataset(filtered_dataset, {"2019": holds_data})
+    if os.path.exists(commons.FILTERED_DATASET_PATH[version]):
+        print(f"Filtered dataset already exists at {commons.FILTERED_DATASET_PATH[version]}, loading...")
+        with open(commons.FILTERED_DATASET_PATH[version], "r") as f:
+            filtered_dataset = json.load(f)
+    else:
+        dataset = commons.load_boulders_from_dataset()
+        print(f"Loaded {len(dataset)} boulders from dataset, filtering...")
+        filtered_dataset = filter_dataset(dataset)
+    oversampled_dataset = oversample_dataset_by_grade(filtered_dataset)
+    print(f"Filtered dataset now {len(oversampled_dataset)} boulders, splitting into train (75%)/val (25%) sets...")
+    dataset = BoulderDataset(oversampled_dataset, {"2019": holds_data})
     return dataset
 
 
@@ -830,7 +842,7 @@ def main(phase, boulder_json = None, model_path = None, boulder_object = None):
     if phase == "train":
         holds_data = commons.load_holds_data()
         dataset = loading_dataset(holds_data)
-        train_model(dataset, hidden_size=512, batch_size=64, learning_rate=1e-3, weight_decay_factor=0, num_epochs=52, focal_gamma=5.0, focal_alpha=0.75, early_stopping=True)
+        train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=200, focal_gamma=1.0, focal_alpha=None, early_stopping=True)
     elif phase == "predict":
         boulder = boulder_object
         if boulder_json:

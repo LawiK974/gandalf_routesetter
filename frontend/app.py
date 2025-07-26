@@ -82,7 +82,7 @@ def predict_grade():
     model_files = [f for f in os.listdir(model_dir) if f.endswith('.pth')]
     if not model_files:
         return {"error": "No trained model found."}, 500
-    simple_model = "boulder_classifier-lr_0.001-epochs_52-hs_512-mae_0.288-acc_82.08.pth"
+    simple_model = "boulder_classifier-lr_0.001-epochs_62-hs_512-mae_0.240-acc_84.23.pth"
     # complex_model = "beta_classifier-lr_0.001-epochs_250-hs_512-acc_81.43-loss_0.160.pth"
     simple_model = os.path.join(model_dir, simple_model)
     # complex_model = os.path.join(model_dir, complex_model)

@@ -160,10 +160,25 @@ def possible_betas(boulder, holds_data, span=180) -> list[list[str]]:
     filtered_betas = evaluate_betas_difficulty(beta_list, holds_data)  # Evaluate the difficulty of each beta
     return filtered_betas
 
-def best_betas(betas: list[dict], max_betas: int | None = None) -> list[dict]:
+def best_betas(boulder, betas: list[dict], holds_data, max_betas: int | None = None) -> list[dict]:
     """ Returns the best beta based on the difficulty score."""
     if not betas:
         return []
+    filtered_betas = [idx for idx in range(len(betas))]
+    for idx, hold in enumerate(boulder):
+        if len(filtered_betas) == 1:
+            break
+        betas_till_hold = [{"idx": beta_idx, "beta": [h for h in beta if h[1:] in boulder[:idx + 1]]} for beta_idx, beta in enumerate(betas) if beta_idx in filtered_betas]  # Filter betas to only include those that have holds up to the current hold
+        betas_till_hold = [{**evaluate_beta_difficulty(beta["beta"], holds_data), **beta} for beta in betas_till_hold] # Evaluate the difficulty of each beta till the current hold
+        min_max_difficulty = min([beta['max'] for beta in betas_till_hold])  # Get the minimum maximum difficulty in the betas
+        best_betas_till_holds = list(filter(lambda x: x['max'] == min_max_difficulty, betas_till_hold)) # Filter betas with the minimum maximum difficulty
+        filtered_betas = [beta['idx'] for beta in best_betas_till_holds]  # Get the indices of the betas that have the minimum maximum difficulty
+    
+
+    result = [beta for idx, beta in enumerate(betas) if idx in filtered_betas]
+    return result[:min(len(result), max_betas or len(result))]  # Filter the betas based on the difficulty score and return the best ones
+
+
     # min_distance = min([beta['max_distance'] for beta in betas]) # Get the minimum maximum distance in the betas
     # betas = list(filter(lambda x: x['max_distance'] == min_distance, betas))  # then filter betas with the minimum maximum distance
     
@@ -176,8 +191,6 @@ def best_betas(betas: list[dict], max_betas: int | None = None) -> list[dict]:
     # min_bumps =  min([beta['bumps'] for beta in betas])  # then Get the minimum number of bumps in the beta
     # betas = list(filter(lambda x: x['bumps'] == min_bumps, betas))  # then filter betas with the minimum number of bumps
 
-    # min_max_difficulty = min([beta['max'] for beta in betas])  # Get the minimum maximum difficulty in the betas
-    # betas = list(filter(lambda x: x['max'] == min_max_difficulty, betas)) # Filter betas with the minimum maximum difficulty
     
     # min_number_max_difficulty =  min([beta['mouv_at_max'] for beta in betas])  # Get the minimum number of moves at maximum difficulty
     # betas = list(filter(lambda x: x['mouv_at_max'] == min_number_max_difficulty, betas)) # Filter betas with the minimum maximum difficulty
@@ -260,10 +273,11 @@ def main(span: int, boulder: str):
     boulder = json.loads(boulder.replace("'", "\"")) # expected format: ["A1", "B2", "C3"]
     boulder = commons.sort_boulder_holds(boulder)
     holds_data = commons.load_holds_data()
-    betas = possible_betas(boulder, holds_data, span=span)
-    best_betas_list = best_betas(betas, max_betas=3)  # Get the best betas based on the difficulty score
+    # betas = possible_betas(boulder, holds_data, span=span)
+    betas = beta_listing(boulder, holds_data, span=span)
+    best_betas_list = best_betas(boulder, betas, holds_data, max_betas=3)  # Get the best betas based on the difficulty score
     print(f"{len(betas)} betas found, {len(best_betas_list)} best betas found")
-    return best_betas_list
+    return evaluate_betas_difficulty(best_betas_list, holds_data)
 
     
 

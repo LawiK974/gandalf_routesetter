@@ -390,7 +390,7 @@
             } else {
                 let html = '';
                 
-                // Display simple model predictions
+                // Display 2019 Moonboard model predictions
                 if (data.simple_pred && typeof data.simple_pred === 'object') {
                     const simpleSorted = Object.entries(data.simple_pred)
                         .filter(([grade, prob]) => prob > 0)
@@ -401,7 +401,7 @@
                         const topPrediction = simpleSorted[0];
                         const topPercentage = (topPrediction[1] * 100).toFixed(1);
                         
-                        html += `<b>Simple model:</b> <span class="text-success fw-bold">${topPrediction[0]} (${topPercentage}%)</span><br>`;
+                        html += `<b>2019 Moonboard model:</b> <span class="text-success fw-bold">${topPrediction[0]} (${topPercentage}%)</span><br>`;
                         
                         if (simpleSorted.length > 1) {
                             html += '<small>Other predictions:</small><br>';
@@ -417,10 +417,10 @@
                     }
                 } else if (data.simple_pred) {
                     // Fallback for old format
-                    html += `<b>Simple model:</b> ${data.simple_pred} (${Number(data.simple_probability).toFixed(2)}%)<br>`;
+                    html += `<b>2019 Moonboard model:</b> ${data.simple_pred} (${Number(data.simple_probability).toFixed(2)}%)<br>`;
                 }
 
-                // Display complex model predictions
+                // Display All Moonboard model predictions
                 if (data.complex_pred && typeof data.complex_pred === 'object') {
                     const complexSorted = Object.entries(data.complex_pred)
                         .filter(([grade, prob]) => prob > 0)
@@ -431,7 +431,7 @@
                         const topPrediction = complexSorted[0];
                         const topPercentage = (topPrediction[1] * 100).toFixed(1);
                         
-                        html += `<b>Complex model:</b> <span class="text-success fw-bold">${topPrediction[0]} (${topPercentage}%)</span><br>`;
+                        html += `<b>All Moonboard model:</b> <span class="text-success fw-bold">${topPrediction[0]} (${topPercentage}%)</span><br>`;
                         
                         if (complexSorted.length > 1) {
                             html += '<small>Other predictions:</small><br>';
@@ -447,7 +447,7 @@
                     }
                 } else if (data.complex_pred) {
                     // Fallback for old format
-                    html += `<b>Complex model:</b> ${data.complex_pred} (${Number(data.complex_probability).toFixed(2)}%)`;
+                    html += `<b>All Moonboard model:</b> ${data.complex_pred} (${Number(data.complex_probability).toFixed(2)}%)`;
                 }
 
                 document.getElementById('predicted-grade').innerHTML = html;

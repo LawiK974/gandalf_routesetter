@@ -8,6 +8,12 @@ DATASET_PATH = {
   "2016": os.path.join(SCRIPT_PATH, "../dataset/2016.json"),
   "2017": os.path.join(SCRIPT_PATH, "../dataset/2017.json"),
 }
+
+FILTERED_DATASET_PATH = {
+  "2019": os.path.join(SCRIPT_PATH, "../dataset/filtered_2019.json"),
+  "2016": os.path.join(SCRIPT_PATH, "../dataset/filtered_2016.json"),
+  "2017": os.path.join(SCRIPT_PATH, "../dataset/filtered_2017.json"),
+}
 HOLDS_EVAL_PATH = {
   "2019": os.path.join(SCRIPT_PATH, "../dataset/2019.csv"),
   "2016": os.path.join(SCRIPT_PATH, "../dataset/2016.csv"),
@@ -64,7 +70,7 @@ def get_hold_difficulty(hand: str, hold_data: dict) -> float:
         "SE": 5 if hand == "L" else 3,
         "SW": 5 if hand == "R" else 3,
     }
-    texture_points = {"woodc": 1, "white": 2, "black": 3, "woodb": 4, "wooda": 5, "yellow": 6}
+    texture_points = {"woodc": 1, "white": 2, "black": 3, "woodb": 4, "wooda": 5, "yellow": 6, "red": 7}
     type_points = {"jug": 0, "pinch": 1, "microjug": 2, "micropinch": 3, "crimp": 4, "sloper": 5, "pocket": 6}
     can_match_points = 0 if hold_data["can_match"] else 1
     max_points = 1 + max(orientation_point.values()) + max(texture_points.values()) + max(type_points.values()) 
