@@ -378,6 +378,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
 
     best_accuracy = 0.0
     best_mae = float('inf')  # MAE should be minimized
+    best_rmse = float('inf')  # RMSE should be minimized
     best_close_accuracy = 0.0
     best_loss = float('inf')
     best_epoch = 0
@@ -406,6 +407,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         close_correct = 0
         total = 0
         mae_sum = 0.0
+        mse_sum = 0.0  # For RMSE calculation
         all_true = []
         all_pred = []
 
@@ -429,6 +431,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
 
                 total += grades.size(0)
                 mae_sum += np.abs(pred_idx - true_idx).sum()
+                mse_sum += ((pred_idx - true_idx) ** 2).sum()  # Mean Squared Error sum
 
                 # For confusion matrix: convert ordinal output to class index
                 all_true.extend(true_idx.tolist())
@@ -438,17 +441,19 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         exact_accuracy = 100.0 * correct / total if total > 0 else 0.0
         close_accuracy = 100.0 * close_correct / total if total > 0 else 0.0
         mae = mae_sum / total if total > 0 else 0.0
+        rmse = np.sqrt(mse_sum / total) if total > 0 else 0.0
         val_loss.append(avg_val_loss)
         val_accuracy.append(exact_accuracy)
         val_close_accuracy.append(close_accuracy)
         val_mae_list.append(mae)
 
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}")
-        print(f"    Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}")
+        print(f"    Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}, RMSE: {rmse:.3f}")
 
         # Track best metrics - use MAE as primary metric (lower is better)
-        if mae < best_mae:
+        if rmse < best_rmse:
             best_mae = mae
+            best_rmse = rmse
             best_accuracy = exact_accuracy
             best_close_accuracy = close_accuracy
             best_loss = avg_val_loss
@@ -472,6 +477,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         'validation_close_accuracy': best_close_accuracy,
         'validation_loss': best_loss,
         'mae': best_mae,
+        'rmse': best_rmse,
         'best_epoch': best_epoch,
         'hidden_size': hidden_size,
         'batch_size': batch_size,
@@ -488,7 +494,7 @@ def hyperparameter_search(dataset, input_size=11):
     You can use this as a starting point for grid search or random search.
     """
     # Define hyperparameter ranges
-    hidden_sizes = [128, 256, 512]
+    hidden_sizes = [512, 768, 1024]  # Test a range of hidden sizes
     batch_sizes = [32, 64, 128]
     learning_rates = [1e-4, 1e-3]
     weight_decay_factors = [0, 0.01, 0.1]
@@ -502,7 +508,7 @@ def hyperparameter_search(dataset, input_size=11):
     focal_alphas = [None]
 
     best_config = {}
-    best_mae = float('inf')  # MAE should be minimized, not maximized
+    best_rmse = float('inf')  # RMSE should be minimized, not maximized
     results = []
 
     # Initialize CSV file with headers and read existing results
@@ -511,6 +517,43 @@ def hyperparameter_search(dataset, input_size=11):
 
     if os.path.exists(csv_filename) and os.path.getsize(csv_filename) > 0:
         print("Reading existing results from CSV...")
+        
+        # First, check if RMSE column exists and add it if missing
+        with open(csv_filename, "r", newline='') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            has_rmse = 'rmse' in header
+            
+        if not has_rmse:
+            print("RMSE column not found in existing CSV. Adding RMSE column with 'None' values...")
+            
+            # Read all existing data
+            all_rows = []
+            with open(csv_filename, "r", newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    all_rows.append(row)
+            
+            # Rewrite CSV with RMSE column
+            with open(csv_filename, "w", newline='') as f:
+                writer = csv.writer(f)
+                # Write new header with RMSE
+                new_header = ["hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
+                              "focal_gamma", "focal_alpha", "mae", "rmse", "validation_accuracy",
+                              "validation_close_accuracy", "validation_loss", "best_epoch"]
+                writer.writerow(new_header)
+                
+                # Write existing data with None for RMSE
+                for row in all_rows:
+                    writer.writerow([
+                        row['hidden_size'], row['batch_size'], row['learning_rate'],
+                        row['weight_decay_factor'], row['focal_gamma'], row['focal_alpha'],
+                        row['mae'], 'None', row['validation_accuracy'],
+                        row['validation_close_accuracy'], row['validation_loss'], row['best_epoch']
+                    ])
+            print(f"Updated CSV with RMSE column for {len(all_rows)} existing rows")
+        
+        # Now read the CSV normally
         with open(csv_filename, "r", newline='') as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -526,9 +569,9 @@ def hyperparameter_search(dataset, input_size=11):
                 tested_configs.add(config_tuple)
 
                 # Track best configuration from existing results
-                mae = float(row['mae'])
-                if mae < best_mae:
-                    best_mae = mae
+                rmse = float(row['rmse']) if row['rmse'] not in ('', 'None') else 1.0
+                if rmse < best_rmse:
+                    best_rmse = rmse
                     best_config = {
                         'hidden_size': int(row['hidden_size']),
                         'batch_size': int(row['batch_size']),
@@ -536,7 +579,8 @@ def hyperparameter_search(dataset, input_size=11):
                         'weight_decay_factor': float(row['weight_decay_factor']),
                         'focal_gamma': float(row['focal_gamma']),
                         'focal_alpha': None if row['focal_alpha'] in ('', 'None') else float(row['focal_alpha']),
-                        'mae': mae,
+                        'mae': float(row['mae']),
+                        'rmse': rmse,
                         'validation_accuracy': float(row['validation_accuracy']),
                         'validation_close_accuracy': float(row['validation_close_accuracy']),
                         'validation_loss': float(row['validation_loss']),
@@ -544,7 +588,7 @@ def hyperparameter_search(dataset, input_size=11):
                     }
         print(f"Found {len(tested_configs)} already tested configurations")
         if best_config:
-            print(f"Current best MAE from existing results: {best_mae:.3f}")
+            print(f"Current best RMSE from existing results: {best_rmse:.3f}")
     else:
         # Create new CSV file with headers
         with open(csv_filename, "w", newline='') as f:
@@ -552,12 +596,12 @@ def hyperparameter_search(dataset, input_size=11):
             writer.writerow([
                 "hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
                 "focal_gamma", "focal_alpha",
-                "mae", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
+                "mae", "rmse", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
             ])
 
     print("Starting hyperparameter search...")
-    print("Primary metric: MAE (lower is better)")
-    print("Secondary metrics: Close accuracy (±1 grade), Exact accuracy")
+    print("Primary metric: RMSE (lower is better)")
+    print("Secondary metrics: MAE, Close accuracy (±1 grade), Exact accuracy")
 
     # Calculate total number of configurations to test
     total_configs = len(hidden_sizes) * len(batch_sizes) * len(learning_rates) * len(weight_decay_factors) * len(focal_gammas) * len(focal_alphas)
@@ -619,18 +663,19 @@ def hyperparameter_search(dataset, input_size=11):
                                         focal_gamma,
                                         focal_alpha,
                                         result['mae'],
+                                        result['rmse'],
                                         result['validation_accuracy'],
                                         result['validation_close_accuracy'],
                                         result['validation_loss'],
                                         result['best_epoch']
                                     ])
 
-                                # Track best configuration by MAE (lower is better)
-                                if result['mae'] < best_mae:
-                                    best_mae = result['mae']
+                                # Track best configuration by RMSE (lower is better)
+                                if result['rmse'] < best_rmse:
+                                    best_rmse = result['rmse']
                                     best_config = result
 
-                                print(f"MAE: {result['mae']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
+                                print(f"MAE: {result['mae']:.3f}, RMSE: {result['rmse']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
                                 
                                 # Calculate and display time estimates
                                 if config_times:
@@ -648,7 +693,8 @@ def hyperparameter_search(dataset, input_size=11):
                                     print("-" * 60)
     except KeyboardInterrupt:
         print("\nRecherche interrompue par l'utilisateur (Ctrl-C).\nMeilleure configuration trouvée jusqu'ici :")
-        print(f"Best MAE: {best_config['mae']:.3f}")
+        print(f"Best RMSE: {best_config['rmse']:.3f}")
+        print(f"MAE: {best_config['mae']:.3f}")
         print(f"Exact Accuracy: {best_config['validation_accuracy']:.2f}%, Close Accuracy: {best_config['validation_close_accuracy']:.2f}%")
         print(f"Hidden Size: {best_config['hidden_size']}, Batch Size: {best_config['batch_size']}")
         print(f"Learning Rate: {best_config['learning_rate']}, Weight Decay: {best_config['weight_decay_factor']}")
@@ -656,7 +702,8 @@ def hyperparameter_search(dataset, input_size=11):
         return results, best_config
 
     print(f"\nBest configuration saved to {csv_filename}")
-    print(f"Best MAE: {best_config['mae']:.3f}")
+    print(f"Best RMSE: {best_config['rmse']:.3f}")
+    print(f"MAE: {best_config['mae']:.3f}")
     print(f"Exact Accuracy: {best_config['validation_accuracy']:.2f}%, Close Accuracy: {best_config['validation_close_accuracy']:.2f}%")
     print(f"Hidden Size: {best_config['hidden_size']}, Batch Size: {best_config['batch_size']}")
     print(f"Learning Rate: {best_config['learning_rate']}, Weight Decay: {best_config['weight_decay_factor']}")
