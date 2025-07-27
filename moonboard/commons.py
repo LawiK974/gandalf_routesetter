@@ -44,7 +44,7 @@ GRADE_MAP = {
 
 def sort_boulder_holds(boulder):
     """ Sorts the boulder holds in a specific order."""
-    return sorted(boulder, key=lambda x: ord(x[0]) - 65 + int(x[1:]) * 100)
+    return sorted(set(boulder), key=lambda x: ord(x[0]) - 65 + int(x[1:]) * 100)
 
 
 def get_distance_pos(a: tuple, b: tuple) -> float:
@@ -70,7 +70,7 @@ def get_hold_difficulty(hand: str, hold_data: dict) -> float:
         "SE": 5 if hand == "L" else 3,
         "SW": 5 if hand == "R" else 3,
     }
-    texture_points = {"woodc": 1, "white": 2, "black": 3, "woodb": 4, "wooda": 5, "yellow": 6, "red": 7}
+    texture_points = {"woodc": 1, "white": 2, "black": 3, "woodb": 4, "red": 5, "wooda": 6, "yellow": 7, }
     type_points = {"jug": 0, "pinch": 1, "microjug": 2, "micropinch": 3, "crimp": 4, "sloper": 5, "pocket": 6}
     can_match_points = 0 if hold_data["can_match"] else 1
     max_points = 1 + max(orientation_point.values()) + max(texture_points.values()) + max(type_points.values()) 
@@ -116,7 +116,7 @@ def load_boulders_from_dataset(dataset_path=DATASET_PATH, version="2019"):
         ending_holds = [hold["description"] for hold in boulder["moves"] if hold["isEnd"]]
         boulder_list.append({
             # removing feets for grader
-            "holds": sort_boulder_holds([hold["description"] for hold in boulder["moves"]]),
+            "holds": sort_boulder_holds([hold["description"].upper() for hold in boulder["moves"]]),
             "start": starting_holds,
             "end": ending_holds,
             "name": boulder["name"],

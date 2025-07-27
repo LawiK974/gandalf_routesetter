@@ -25,16 +25,17 @@ def loading_dataset():
             filtered_dataset = grader.filter_dataset(commons.load_boulders_from_dataset(version=version), version)
         holds_data[version] = commons.load_holds_data(version=version)
         dataset.extend(filtered_dataset)
-    print(f"Filtered dataset now {len(filtered_dataset)} boulders")
-    dataset = grader.BoulderDataset(filtered_dataset, holds_data)
-    return dataset
+        print(f"Filtered dataset now {len(dataset)} boulders")
+    oversampled_dataset = grader.oversample_dataset_by_grade(dataset)
+    result = grader.BoulderDataset(oversampled_dataset, holds_data, input_size=12)
+    return result
 
 
 def main(phase, boulder_json = None, model_path = None, boulder_object = None):
     input_size = 12  # Default input size for the model
     if phase == "train":
         dataset = loading_dataset()
-        grader.train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=200, focal_gamma=1.0, focal_alpha=0, early_stopping=True, input_size=input_size)
+        grader.train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=200, focal_gamma=1.0, focal_alpha=None, early_stopping=True, input_size=input_size)
     elif phase == "predict":
         boulder = boulder_object
         if boulder_json:

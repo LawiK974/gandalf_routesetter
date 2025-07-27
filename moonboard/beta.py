@@ -127,20 +127,24 @@ def find_beta_next_hold(boulder: list, beta_list: list, holds_data: dict, span: 
     return find_beta_next_hold(boulder, next_beta_list, holds_data, span)
 
 
-def beta_listing(boulder: list, holds_data: dict, span: int = 170) -> list[list[dict]]:
+def beta_listing(boulder: list, holds_data: dict, span: int = 170, start_holds = None) -> list[list[dict]]:
     """ Returns a list of possible beta for the boulder problem."""
-    start_holds = boulder[:2]  # Get the first two holds for the start
+    start_holds = start_holds or boulder[:2]  # Get the first two holds for the start
     sorted_start_holds = sorted(start_holds, key=lambda x: int(x[1:]))  # Sort holds by their vertical position (1,2,3, etc.)
     beta_list = []
-    if int(sorted_start_holds[1][1:]) <= 6:
+    if len(sorted_start_holds) == 2:
+    # if int(sorted_start_holds[1][1:]) <= 6:
         # start rule n°1
         beta_list.extend([
             ['L' + sorted_start_holds[0], 'R' + sorted_start_holds[1]],  # Main gauche sur la prise de gauche, main droite sur la prise de droite
             ['R' + sorted_start_holds[0], 'L' + sorted_start_holds[1]],  # Main droite sur la prise de gauche, main gauche sur la prise de droite
         ])
-    if holds_data[sorted_start_holds[0]]['can_match']:
+    elif len(sorted_start_holds) == 1:
+    # if holds_data[sorted_start_holds[0]]['can_match']:
         beta_list.append(['L' + sorted_start_holds[0], 'R' + sorted_start_holds[0]]),  # les deux mains sur la première prise
         # beta_list.append(['R' + sorted_start_holds[0], 'L' + sorted_start_holds[0]]),  # les deux mains sur la première prise dans l'autre sens
+    else:
+        raise ValueError("Invalid start holds. Expected 1 or 2 holds, got: " + str(sorted_start_holds))
     return find_beta_next_hold(boulder, beta_list, holds_data, span=span)
 
 
@@ -153,37 +157,56 @@ def filter_only_finishing_beta(beta_list: list, boulder: list):
             yield beta
 
 
-def possible_betas(boulder, holds_data, span=180) -> list[list[str]]:
+def possible_betas(boulder, holds_data, span=180, start = None) -> list[list[str]]:
     """ Returns a list of possible beta for the boulder problem."""
-    beta_list = beta_listing(boulder, holds_data, span=span)
+    beta_list = beta_listing(boulder, holds_data, span=span, start_holds=start)  # Get the list of possible betas for the boulder
     # filtered_finished_betas = list(filter_only_finishing_beta(beta_list, boulder))
     filtered_betas = evaluate_betas_difficulty(beta_list, holds_data)  # Evaluate the difficulty of each beta
     return filtered_betas
 
-def best_betas(boulder, betas: list[dict], holds_data, max_betas: int | None = None) -> list[dict]:
+def best_betas(boulder, betas: list[dict], holds_data, max_betas: int | None = None, start_holds = None) -> list[dict]:
     """ Returns the best beta based on the difficulty score."""
     if not betas:
         return []
     filtered_betas = [idx for idx in range(len(betas))]
     for idx, hold in enumerate(boulder):
-        if len(filtered_betas) == 1:
+        if len(filtered_betas) <= 1:
             break
+        if hold in (start_holds or boulder[:1]):
+            continue  # Skip the first hold as we already have the starting betas
         betas_till_hold = [{"idx": beta_idx, "beta": [h for h in beta if h[1:] in boulder[:idx + 1]]} for beta_idx, beta in enumerate(betas) if beta_idx in filtered_betas]  # Filter betas to only include those that have holds up to the current hold
-        betas_till_hold = [{**evaluate_beta_difficulty(beta["beta"], holds_data), **beta} for beta in betas_till_hold] # Evaluate the difficulty of each beta till the current hold
-        min_max_difficulty = min([beta['max'] for beta in betas_till_hold])  # Get the minimum maximum difficulty in the betas
-        best_betas_till_holds = list(filter(lambda x: x['max'] == min_max_difficulty, betas_till_hold)) # Filter betas with the minimum maximum difficulty
-        filtered_betas = [beta['idx'] for beta in best_betas_till_holds]  # Get the indices of the betas that have the minimum maximum difficulty
+        # betas_till_hold = [{**evaluate_beta_difficulty(beta["beta"], holds_data), **beta} for beta in betas_till_hold] # Evaluate the difficulty of each beta till the current hold
+        min_distance = 200
+        for beta in betas_till_hold:
+            mouv = beta["beta"][- 1]
+            if mouv[1:] != hold:
+                beta["distance"]  = 0
+                continue
+            _, previous_other_hand = find_previous_other_hand_mouv(beta["beta"])  # Find the previous move with the other hand
+            distance = round(commons.get_distance(previous_other_hand[1:], mouv[1:]))
+            beta["distance"] = distance  # Add the distance to the beta
+            if distance < min_distance:
+                min_distance = distance
+        betas_till_hold = list(filter(lambda x: x['distance'] in [min_distance, 0], betas_till_hold))  # Filter betas with the minimum maximum distance
+        # min_distance = min([beta['max_distance'] for beta in betas_till_hold if beta['max_distance'] > 0]) # Get the minimum maximum distance in the betas
+        # betas_till_hold = list(filter(lambda x: x['max_distance'] in [0, min_distance], betas_till_hold))  # then filter betas with the minimum maximum distance
+        
+        # min_mean_distance = min([beta['mean_distance'] for beta in betas_till_hold if beta['mean_distance'] > 0])  # then Get the minimum number of crosses in the beta
+        # betas_till_hold = list(filter(lambda x: x['mean_distance'] in [0, min_mean_distance], betas_till_hold)) # Filter betas with the minimum maximum difficulty
+        
+        # min_max_difficulty = min([beta['max'] for beta in betas_till_hold])  # Get the minimum maximum difficulty in the betas
+        # betas_till_hold = list(filter(lambda x: x['max'] == min_max_difficulty, betas_till_hold)) # Filter betas with the minimum maximum difficulty
+        
+        # filtering best betas idx till the current hold for each hold till the last hold
+        filtered_betas = [beta['idx'] for beta in betas_till_hold]
     
-
+    # extract the betas from the filtered_betas indices
     result = [beta for idx, beta in enumerate(betas) if idx in filtered_betas]
-    return result[:min(len(result), max_betas or len(result))]  # Filter the betas based on the difficulty score and return the best ones
+    # ensure the result is limited to max_betas if specified
+    return result[:min(len(result), max_betas or len(result))]
 
 
-    # min_distance = min([beta['max_distance'] for beta in betas]) # Get the minimum maximum distance in the betas
-    # betas = list(filter(lambda x: x['max_distance'] == min_distance, betas))  # then filter betas with the minimum maximum distance
     
-    min_mean_distance = min([beta['mean_distance'] for beta in betas])  # then Get the minimum number of crosses in the beta
-    betas = list(filter(lambda x: x['mean_distance'] == min_mean_distance, betas)) # Filter betas with the minimum maximum difficulty
     
     min_crosses = min([beta['crosses'] for beta in betas])  # then Get the minimum number of crosses in the beta
     betas = list(filter(lambda x: x['crosses'] == min_crosses, betas))
@@ -269,13 +292,18 @@ def evaluate_betas_difficulty(betas: list, holds_data: dict) -> list[dict]:
 #################
 # Main function to find possible betas for a given boulder
 ###################
-def main(span: int, boulder: str):
-    boulder = json.loads(boulder.replace("'", "\"")) # expected format: ["A1", "B2", "C3"]
+def main(span: int, boulder: str | None = None, version: str = "2019", boulder_dict: dict | None = None) -> list[dict]:
+    if boulder:
+      boulder = json.loads(boulder.replace("'", "\"")) # expected format: ["A1", "B2", "C3"]
+      start = boulder[:2] if int(boulder[2][1:]) < 6 else boulder[:1]
+    else:
+        boulder = boulder_dict.get("holds") if boulder_dict else None
+        start = boulder_dict.get("start") if boulder_dict else None
+    print(boulder_dict)
     boulder = commons.sort_boulder_holds(boulder)
-    holds_data = commons.load_holds_data()
-    # betas = possible_betas(boulder, holds_data, span=span)
-    betas = beta_listing(boulder, holds_data, span=span)
-    best_betas_list = best_betas(boulder, betas, holds_data, max_betas=3)  # Get the best betas based on the difficulty score
+    holds_data = commons.load_holds_data(version)
+    betas = beta_listing(boulder, holds_data, span=span, start_holds = start)
+    best_betas_list = best_betas(boulder, betas, holds_data, max_betas=3, start_holds = start)  # Get the best betas based on the difficulty score
     print(f"{len(betas)} betas found, {len(best_betas_list)} best betas found")
     return evaluate_betas_difficulty(best_betas_list, holds_data)
 

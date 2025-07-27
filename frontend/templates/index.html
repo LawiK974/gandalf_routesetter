@@ -183,12 +183,15 @@
         const span = spanSlider.value;
         // Get selected hold types
         const checkedTypes = Array.from(document.querySelectorAll('input[name="hold_type"]:checked')).map(cb => cb.value);
-        const params = new URLSearchParams({ span });
+        const params = new URLSearchParams({ span, version: '{{ version }}' });
         if (checkedTypes.length > 0) {
             params.append('hold_types', checkedTypes.join(','));
         }
         fetch(`/generate?${params.toString()}`)
             .then(response => {
+                if (response.status === 429) {
+                    throw new Error('Too many requests, please wait and try again.');
+                }
                 document.getElementById('beta-result').innerHTML = ""
                 document.getElementById('predicted-grade').innerHTML = ""
                 return response.json()
@@ -209,7 +212,7 @@
                 } else {
                     similarList = '<i>No similar boulders found.</i>';
                 }
-                document.querySelector('#similar-problem').innerHTML = `Existing problems, <b>${data.score}</b> similar to the IA generated problem` + similarList;
+                document.querySelector('#similar-problem').innerHTML = `Existing problems, <b>${data.score}</b> similar to the AI generated problem` + similarList;
 
                 const holds = data.boulder.split(','); // Assuming holds are comma-separated
                 drawGridOverlay(holds);
@@ -232,8 +235,13 @@
             return;
         }
         const params = new URLSearchParams({ boulder: JSON.stringify(holds), span });
-        fetch(`/get-beta?${params.toString()}`)
-            .then(response => response.json())
+        fetch(`/get-beta/{{ version }}?${params.toString()}`)
+            .then(response => {
+                if (response.status === 429) {
+                    throw new Error('Too many requests, please wait and try again.');
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     document.getElementById('beta-result').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
@@ -378,12 +386,17 @@
             return;
         }
         const holds = boulderStr.split(',').map(h => h.trim()).filter(Boolean);
-        fetch('/predict-grade', {
+        fetch('/predict-grade/{{ version }}', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ boulder: holds })
         })
-        .then(response => response.json())
+        .then(response => {
+            if (response.status === 429) {
+                throw new Error('Too many requests, please wait and try again.');
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.error) {
                 document.getElementById('predicted-grade').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
@@ -401,7 +414,7 @@
                         const topPrediction = simpleSorted[0];
                         const topPercentage = (topPrediction[1] * 100).toFixed(1);
                         
-                        html += `<b>2019 Moonboard model:</b> <span class="text-success fw-bold">${topPrediction[0]} (${topPercentage}%)</span><br>`;
+                        html += `<b>{{ version }} Moonboard model:</b> <span class="text-success fw-bold">${topPrediction[0]} (${topPercentage}%)</span><br>`;
                         
                         if (simpleSorted.length > 1) {
                             html += '<small>Other predictions:</small><br>';
@@ -417,7 +430,7 @@
                     }
                 } else if (data.simple_pred) {
                     // Fallback for old format
-                    html += `<b>2019 Moonboard model:</b> ${data.simple_pred} (${Number(data.simple_probability).toFixed(2)}%)<br>`;
+                    html += `<b>{{ version }} Moonboard model:</b> ${data.simple_pred} (${Number(data.simple_probability).toFixed(2)}%)<br>`;
                 }
 
                 // Display All Moonboard model predictions

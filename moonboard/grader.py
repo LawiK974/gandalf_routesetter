@@ -69,9 +69,9 @@ HOLD_TEXTURE_DICT = {
     "white": 2,
     "black": 3,
     "woodb": 4,
-    "wooda": 5,
-    "yellow": 6,
-    "red": 7,
+    "red": 5,
+    "wooda": 6,
+    "yellow": 7,
 }
 
 CAN_MATCH_DICT = {
@@ -121,7 +121,7 @@ def filter_dataset(dataset, version="2019"):
             list_benchmark_setters.add(boulder['setter'])
     filtered_dataset = list(filter(lambda boulder: (
         boulder['method'] == "Feet follow hands"
-        and len(boulder['holds']) >= 2  # at least 2 holds
+        and 2 <= len(boulder['holds']) <= 14  # at least 2 holds
         and (boulder["userGrade"] or boulder["grade"]) not in ["8B", "8B+"]  # ignore 8B+ grades
         and (
             boulder['setter'] in list_benchmark_setters  # benchmark setters
@@ -208,9 +208,7 @@ class BoulderDataset(Dataset):
                 int(round(commons.get_hold_difficulty("L", hold_data))),
                 int(round(commons.get_hold_difficulty("R", hold_data))),
                 int(round(distance)),
-            ]
-            if input_size == 12:
-                vector.append(MOONBOARD_VERSION_DICT[boulder["version"]])
+            ] + ([MOONBOARD_VERSION_DICT[boulder["version"]]] if input_size == 12 else [])
         return vector
 
     def __len__(self):
@@ -299,7 +297,7 @@ class FocalLoss(nn.Module):
             return loss
 
 
-def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list, outputs_suffix):
+def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list, outputs_suffix, prefix):
     """Plot training and validation loss, accuracy, MAE, and confusion matrix in a 2x2 grid."""
 
     # Create a figure with 2x2 subplots
@@ -346,12 +344,12 @@ def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_
     plt.title('Confusion Matrix (Validation)')
 
     plt.tight_layout()
-    plt.savefig(f"training_results-{outputs_suffix}.png", dpi=300, bbox_inches='tight')
+    plt.savefig(f"{prefix}training_results-{outputs_suffix}.png", dpi=300, bbox_inches='tight')
     # plt.show()
     plt.close()
 
 
-def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False, focal_gamma: float = 2.0, focal_alpha: float = None, early_stopping: bool = True, input_size=11) -> dict[str, float | dict[str, float]]:
+def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False, focal_gamma: float = 2.0, focal_alpha: float = None, early_stopping: bool = True, input_size=11, version="2019") -> dict[str, float | dict[str, float]]:
     """
     Evaluate a set of hyperparameters and return key metrics for optimization.
 
@@ -359,7 +357,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         dict: Dictionary containing validation accuracy, loss, MAE, and best epoch
     """
     print(f"Training model with hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}, learning_rate={learning_rate}, weight_decay_factor={weight_decay_factor}, num_epochs={num_epochs}")
-    prefix = "" if input_size == 11 else "ALLMOON-"
+    prefix = f"{version}-" if input_size == 11 else "ALLMOON-"
 
     # Initialize model and dataset
     model = BoulderClassifier(input_size=input_size, hidden_size=hidden_size, num_classes=len(GRADE_DICT))
@@ -387,7 +385,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
     train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list = [], [], [], [], [], []
     all_true = []
     all_pred = []
-
+    previous_model_path = None
     for epoch in range(num_epochs):
         # Training phase
         model.train()
@@ -462,22 +460,27 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
             best_close_accuracy = close_accuracy
             best_loss = avg_val_loss
             best_epoch = epoch + 1
-        if rmse <= 0.7:
-          torch.save(model.state_dict(), f"{prefix}tmp_rmse{rmse:.3f}_acc{exact_accuracy:.2f}.pth")
-                
+            if not search_mode:
+                if previous_model_path and os.path.exists(previous_model_path):
+                    os.remove(previous_model_path)
+                model_path = f"{prefix}tmp_rmse{rmse:.3f}_acc{exact_accuracy:.2f}.pth"
+                torch.save(model.state_dict(), model_path)
+                previous_model_path = f"{model_path}"              
 
         # Early stopping based on MAE improvement
         if epoch - best_epoch > 20 and early_stopping:
             print(f"Early stopping at epoch {epoch + 1} (no RMSE improvement)")
             break
     if not search_mode:
-        outputs_suffix = f"lr_{learning_rate}-epochs_{epoch+1}-hs_{hidden_size}-mae_{best_mae:.3f}-acc_{best_accuracy:.2f}"
+        outputs_suffix = f"lr_{learning_rate}-epochs_{best_epoch}-hs_{hidden_size}-mae_{best_mae:.3f}-acc_{best_accuracy:.2f}"
         print(f"Training complete. Best RMSE: {best_rmse:.3f} with exact accuracy {best_accuracy:.2f}% and close accuracy {best_close_accuracy:.2f}% at epoch {best_epoch}")
         # Save the model
         model_path = f"{prefix}boulder_classifier-{outputs_suffix}.pth"
-        torch.save(model.state_dict(), model_path)
+        # torch.save(model.state_dict(), model_path)
+        if os.path.exists(previous_model_path):
+            os.rename(previous_model_path, model_path)
         print(f"Model saved as {model_path}")
-        plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list, outputs_suffix)
+        plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_accuracy, val_mae_list, val_rmse_list, outputs_suffix, prefix)
     return {
         'validation_accuracy': best_accuracy,
         'validation_close_accuracy': best_close_accuracy,
@@ -494,7 +497,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
     }
 
 
-def hyperparameter_search(dataset, input_size=11):
+def hyperparameter_search(dataset, input_size=11, version="2019"):
     """
     Example hyperparameter search function.
     You can use this as a starting point for grid search or random search.
@@ -649,7 +652,7 @@ def hyperparameter_search(dataset, input_size=11):
                                 # Start timing this configuration
                                 config_start_time = time.time()
                                 
-                                result = train_model(dataset, num_epochs=900, search_mode=True, **config)
+                                result = train_model(dataset, num_epochs=900, search_mode=True, **config, version=version)
                                 results.append(result)
 
                                 # Calculate time taken for this configuration
@@ -725,12 +728,12 @@ def loading_dataset(holds_data=None, version="2019"):
         with open(commons.FILTERED_DATASET_PATH[version], "r") as f:
             filtered_dataset = json.load(f)
     else:
-        dataset = commons.load_boulders_from_dataset()
+        dataset = commons.load_boulders_from_dataset(version=version)
         print(f"Loaded {len(dataset)} boulders from dataset, filtering...")
-        filtered_dataset = filter_dataset(dataset)
+        filtered_dataset = filter_dataset(dataset, version)
     oversampled_dataset = oversample_dataset_by_grade(filtered_dataset)
     print(f"Filtered dataset now {len(oversampled_dataset)} boulders, splitting into train (75%)/val (25%) sets...")
-    dataset = BoulderDataset(oversampled_dataset, {"2019": holds_data})
+    dataset = BoulderDataset(oversampled_dataset, {version: holds_data})
     return dataset
 
 
@@ -807,8 +810,9 @@ def predict_boulder_grade(boulder, model_path, input_size=11, version="2019"):
         dict: Dictionary mapping grade names to their probabilities
     """
     # Vectorize boulder
+    version = boulder.get("version", version)  # Use provided version or default to "2019"
     holds_data = commons.load_holds_data(version)
-    boulder_vector = BoulderDataset.vectorize_boulder(boulder, input_size, {"2019": holds_data})
+    boulder_vector = BoulderDataset.vectorize_boulder(boulder, input_size, {version: holds_data})
     x = torch.tensor(boulder_vector, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, 14, input_size)
 
     # Extract hidden_size from model_path if present
@@ -838,11 +842,12 @@ def predict_boulder_grade(boulder, model_path, input_size=11, version="2019"):
 ################
 
 
-def main(phase, boulder_json = None, model_path = None, boulder_object = None):
+def main(phase, version = "2019", epochs = 200, boulder_json = None, model_path = None, boulder_object = None):
+    print(f"Running phase: {phase}, version: {version}")
     if phase == "train":
-        holds_data = commons.load_holds_data()
-        dataset = loading_dataset(holds_data)
-        train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=200, focal_gamma=1.0, focal_alpha=None, early_stopping=True)
+        holds_data = commons.load_holds_data(version)
+        dataset = loading_dataset(holds_data, version)
+        train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=int(epochs), focal_gamma=1.0, focal_alpha=None, early_stopping=True, version=version)
     elif phase == "predict":
         boulder = boulder_object
         if boulder_json:
@@ -852,8 +857,8 @@ def main(phase, boulder_json = None, model_path = None, boulder_object = None):
             return pred_grade
         print(f"Predicted grades: {pred_grade}")
     elif phase == "search":
-        holds_data = commons.load_holds_data()
-        dataset = loading_dataset(holds_data)
+        holds_data = commons.load_holds_data(version)
+        dataset = loading_dataset(holds_data, version)
         results, best_config = hyperparameter_search(dataset)
 
 

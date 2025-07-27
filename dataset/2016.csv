@@ -89,6 +89,7 @@ X,Y,hold,type,texture,orientation,can_match
 3,4,D5,pocket,white,N,False
 0,14,A15,pocket,white,N,False
 1,17,B18,jug,white,NW,True
+7,15,H16,crimp,black,N,False
 1,14,B15,crimp,black,N,False
 9,11,J12,crimp,black,NE,False
 9,12,J13,crimp,black,N,False

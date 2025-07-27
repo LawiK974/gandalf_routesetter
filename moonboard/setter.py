@@ -23,18 +23,18 @@ def get_weight_gaussian(distance: float, mu: float = (ENVERGURE - 22)/2, sigma: 
     return float(stats.norm.pdf(distance, loc=mu, scale=sigma))
 
 
-def get_boulder(span: int = ENVERGURE, hold_types: list = None) -> list[str]:
+def get_boulder(span: int = ENVERGURE, hold_types: list = None, version = "2019") -> list[str]:
     """ Converts a list of holds to a string representation. Optionally filter by hold_types."""
-    holds_data = commons.load_holds_data() if hold_types else None
-    boulder = get_next_hold(span=span, hold_types=hold_types, holds_data=holds_data)
+    holds_data = commons.load_holds_data(version)
+    boulder = get_next_hold(span=span, hold_types=hold_types, holds_data=holds_data, start=True)
     return [chr(65 + y) + str(x+1) for x,y in boulder]
 
 
 def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None, start: bool = False) -> list[tuple[int, int]]:
     """ Returns the next hold to grab based on the previous hold, optionally filtering by hold_types."""
+    candidates = [[hold for hold in row if commons.get_hold_name(hold) in holds_data] for row in (board[:6] if start else board[previous[0] + 1:])]
     if previous is None:
         # prise de départ au hasard en dessous de la 6eme rangee
-        candidates = board[:6]
         if hold_types and holds_data:
             candidates = [[hold for hold in row if holds_data.get(commons.get_hold_name(hold), {})["type"] in hold_types] for row in candidates]
             if not candidates:
@@ -48,8 +48,8 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
         possible_holds = []
         weight_list = []
         mu = (span - 22) / 2
-        sigma = mu / 2
-        for row in board[:6] if start else board[previous[0] + 1:]:
+        sigma = mu / 2 
+        for row in candidates:
             for new in row:
                 distance = commons.get_distance_pos(previous, new)
                 # restriction a uniquement les prises au dessus de la precedente
