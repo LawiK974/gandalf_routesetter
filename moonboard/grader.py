@@ -174,8 +174,8 @@ class BoulderDataset(Dataset):
         for boulder in dataset:
             boulder_vector = self.vectorize_boulder(boulder, self.input_size, holds_data)
             label_vector = GRADE_DICT[boulder["userGrade"] or boulder['grade']][1:]  # remove the first element (0) to match the output size
-            self.data.append(torch.tensor(boulder_vector, dtype=torch.float32).to(device))
-            self.labels.append(torch.tensor(label_vector, dtype=torch.float32).to(device))
+            self.data.append(torch.tensor(boulder_vector, dtype=torch.float32, device=device))
+            self.labels.append(torch.tensor(label_vector, dtype=torch.float32, device=device))
 
     @staticmethod
     def vectorize_boulder(boulder, input_size, holds_data={}):
@@ -349,14 +349,14 @@ def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_
     plt.close()
 
 
-def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False, focal_gamma: float = 2.0, focal_alpha: float = None, early_stopping: bool = True, input_size=11, version="2019") -> dict[str, float | dict[str, float]]:
+def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False, focal_gamma: float = 2.0, focal_alpha: float | None = None, early_stopping: bool = True, input_size=11, version="2019", gradient_clip_value: float = 1.0) -> dict[str, float]:
     """
     Evaluate a set of hyperparameters and return key metrics for optimization.
 
     Returns:
         dict: Dictionary containing validation accuracy, loss, MAE, and best epoch
     """
-    print(f"Training model with hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}, learning_rate={learning_rate}, weight_decay_factor={weight_decay_factor}, num_epochs={num_epochs}")
+    print(f"Training model with hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}, learning_rate={learning_rate}, weight_decay_factor={weight_decay_factor}, num_epochs={num_epochs}, gradient_clip={gradient_clip_value}")
     prefix = f"{version}-" if input_size == 11 else "ALLMOON-"
 
     # Initialize model and dataset
@@ -395,6 +395,11 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
             outputs = model(boulders)
             loss = loss_func(outputs, grades)
             loss.backward()
+
+            # Gradient clipping to prevent exploding gradients
+            if gradient_clip_value > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_value)
+
             optimizer.step()
             epoch_loss += loss.item()
         avg_loss = epoch_loss / (batch_count + 1)
@@ -419,20 +424,20 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
                 val_epoch_loss += loss.item()
 
                 preds = (torch.sigmoid(outputs) > 0.5).float()
-                pred_idx = prediction2labelindex(preds.cpu().numpy())
-                true_idx = prediction2labelindex(grades.cpu().numpy())
+                pred_idx = prediction2labelindex(preds)
+                true_idx = prediction2labelindex(grades)
 
                 # Exact accuracy (traditional)
                 exact_matches = (pred_idx == true_idx).sum()
                 correct += exact_matches
 
                 # Close accuracy (±1 grade)
-                close_matches = (np.abs(pred_idx - true_idx) <= 1).sum()
+                close_matches = (torch.abs(pred_idx - true_idx) <= 1).sum()
                 close_correct += close_matches
 
                 total += grades.size(0)
-                mae_sum += np.abs(pred_idx - true_idx).sum()
-                mse_sum += ((pred_idx - true_idx) ** 2).sum()  # Mean Squared Error sum
+                mae_sum += torch.abs(pred_idx - true_idx).sum()
+                mse_sum += torch.pow(pred_idx - true_idx, 2).sum()  # Mean Squared Error sum
                 if not search_mode:
                     # For confusion matrix: convert ordinal output to class index
                     all_true.extend(true_idx.tolist())
@@ -442,7 +447,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         exact_accuracy = 100.0 * correct / total if total > 0 else 0.0
         close_accuracy = 100.0 * close_correct / total if total > 0 else 0.0
         mae = mae_sum / total if total > 0 else 0.0
-        rmse = np.sqrt(mse_sum / total) if total > 0 else 0.0
+        rmse = torch.sqrt(mse_sum / total) if total > 0 else 0.0
         if not search_mode:
             val_loss.append(avg_val_loss)
             val_accuracy.append(exact_accuracy)
@@ -465,7 +470,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
                     os.remove(previous_model_path)
                 model_path = f"{prefix}tmp_rmse{rmse:.3f}_acc{exact_accuracy:.2f}.pth"
                 torch.save(model.state_dict(), model_path)
-                previous_model_path = f"{model_path}"              
+                previous_model_path = f"{model_path}"
 
         # Early stopping based on MAE improvement
         if epoch - best_epoch > 20 and early_stopping:
@@ -503,10 +508,10 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
     You can use this as a starting point for grid search or random search.
     """
     # Define hyperparameter ranges
-    hidden_sizes = [128, 256, 512, 768]  # Test a range of hidden sizes
+    hidden_sizes = [512]  # Test a range of hidden sizes
     batch_sizes = [32, 64, 128]
     learning_rates = [1e-3]
-    weight_decay_factors = [0, 0.1]
+    weight_decay_factors = [0.1]
     # hidden_sizes = [512]
     # batch_sizes = [64]
     # learning_rates = [1e-3]
@@ -515,6 +520,7 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
     # focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]
     # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
     focal_alphas = [None]
+    gradient_clip_values = [0, 1.0, 2.0]  # Gradient clipping values to prevent exploding gradients
 
     best_config = {}
     best_rmse = float('inf')  # RMSE should be minimized, not maximized
@@ -526,42 +532,42 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
 
     if os.path.exists(csv_filename) and os.path.getsize(csv_filename) > 0:
         print("Reading existing results from CSV...")
-        
+
         # First, check if RMSE column exists and add it if missing
         with open(csv_filename, "r", newline='') as f:
             reader = csv.reader(f)
             header = next(reader)
             has_rmse = 'rmse' in header
-            
+
         if not has_rmse:
             print("RMSE column not found in existing CSV. Adding RMSE column with 'None' values...")
-            
+
             # Read all existing data
             all_rows = []
             with open(csv_filename, "r", newline='') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     all_rows.append(row)
-            
+
             # Rewrite CSV with RMSE column
             with open(csv_filename, "w", newline='') as f:
                 writer = csv.writer(f)
                 # Write new header with RMSE
                 new_header = ["hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
-                              "focal_gamma", "focal_alpha", "mae", "rmse", "validation_accuracy",
+                              "focal_gamma", "focal_alpha", "gradient_clip_value", "mae", "rmse", "validation_accuracy",
                               "validation_close_accuracy", "validation_loss", "best_epoch"]
                 writer.writerow(new_header)
-                
+
                 # Write existing data with None for RMSE
                 for row in all_rows:
                     writer.writerow([
                         row['hidden_size'], row['batch_size'], row['learning_rate'],
-                        row['weight_decay_factor'], row['focal_gamma'], row['focal_alpha'],
-                        row['mae'], 'None', row['validation_accuracy'],
+                        row['weight_decay_factor'], row['focal_gamma'], row['focal_alpha'], row.get('gradient_clip_value'),
+                        row['mae'], row.get('rmse', 'None'), row['validation_accuracy'],
                         row['validation_close_accuracy'], row['validation_loss'], row['best_epoch']
                     ])
             print(f"Updated CSV with RMSE column for {len(all_rows)} existing rows")
-        
+
         # Now read the CSV normally
         with open(csv_filename, "r", newline='') as f:
             reader = csv.DictReader(f)
@@ -573,7 +579,8 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
                     float(row['learning_rate']),
                     float(row['weight_decay_factor']),
                     float(row['focal_gamma']),
-                    None if row['focal_alpha'] in ('', 'None') else float(row['focal_alpha'])
+                    None if row['focal_alpha'] in ('', 'None') else float(row['focal_alpha']),
+                    float(row.get('gradient_clip_value', 0))  # Default to 1.0 if not present
                 )
                 tested_configs.add(config_tuple)
 
@@ -588,6 +595,7 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
                         'weight_decay_factor': float(row['weight_decay_factor']),
                         'focal_gamma': float(row['focal_gamma']),
                         'focal_alpha': None if row['focal_alpha'] in ('', 'None') else float(row['focal_alpha']),
+                        "gradient_clip_value": float(row.get('gradient_clip_value', 0)),
                         'mae': float(row['mae']),
                         'rmse': rmse,
                         'validation_accuracy': float(row['validation_accuracy']),
@@ -604,7 +612,7 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
             writer = csv.writer(f)
             writer.writerow([
                 "hidden_size", "batch_size", "learning_rate", "weight_decay_factor",
-                "focal_gamma", "focal_alpha",
+                "focal_gamma", "focal_alpha", "gradient_clip_value",
                 "mae", "rmse", "validation_accuracy", "validation_close_accuracy", "validation_loss", "best_epoch"
             ])
 
@@ -613,7 +621,7 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
     print("Secondary metrics: MAE, Close accuracy (±1 grade), Exact accuracy")
 
     # Calculate total number of configurations to test
-    total_configs = len(hidden_sizes) * len(batch_sizes) * len(learning_rates) * len(weight_decay_factors) * len(focal_gammas) * len(focal_alphas)
+    total_configs = len(hidden_sizes) * len(batch_sizes) * len(learning_rates) * len(weight_decay_factors) * len(focal_gammas) * len(focal_alphas) * len(gradient_clip_value)
     configs_tested = len(tested_configs)
     configs_remaining = total_configs - configs_tested
 
@@ -634,72 +642,75 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
                     for weight_decay_factor in weight_decay_factors:
                         for focal_gamma in focal_gammas:
                             for focal_alpha in focal_alphas:
-                                config_tuple = (hidden_size, batch_size, learning_rate, weight_decay_factor, focal_gamma, focal_alpha)
-                                if config_tuple in tested_configs:
-                                    print(f"Skipping already tested configuration: {config_tuple}")
-                                    continue
+                                for gradient_clip_value in gradient_clip_values:
+                                    config_tuple = (hidden_size, batch_size, learning_rate, weight_decay_factor, focal_gamma, focal_alpha, gradient_clip_value)
+                                    if config_tuple in tested_configs:
+                                        print(f"Skipping already tested configuration: {config_tuple}")
+                                        continue
 
-                                config = {
-                                    'hidden_size': hidden_size,
-                                    'batch_size': batch_size,
-                                    'learning_rate': learning_rate,
-                                    'weight_decay_factor': weight_decay_factor,
-                                    'focal_gamma': focal_gamma,
-                                    'focal_alpha': focal_alpha
-                                }
-                                print(f"\nTesting configuration: {config}")
-                                
-                                # Start timing this configuration
-                                config_start_time = time.time()
-                                
-                                result = train_model(dataset, num_epochs=900, search_mode=True, **config, version=version)
-                                results.append(result)
+                                    config = {
+                                        'hidden_size': hidden_size,
+                                        'batch_size': batch_size,
+                                        'learning_rate': learning_rate,
+                                        'weight_decay_factor': weight_decay_factor,
+                                        'focal_gamma': focal_gamma,
+                                        'focal_alpha': focal_alpha,
+                                        'gradient_clip_value': gradient_clip_value  # Use default gradient clipping for hyperparameter search
+                                    }
+                                    print(f"\nTesting configuration: {config}")
 
-                                # Calculate time taken for this configuration
-                                config_end_time = time.time()
-                                config_duration = config_end_time - config_start_time
-                                config_times.append(config_duration)
-                                configs_completed_this_session += 1
+                                    # Start timing this configuration
+                                    config_start_time = time.time()
 
-                                # Save result to CSV immediately after each configuration
-                                with open(csv_filename, "a", newline='') as f:
-                                    writer = csv.writer(f)
-                                    writer.writerow([
-                                        hidden_size,
-                                        batch_size,
-                                        learning_rate,
-                                        weight_decay_factor,
-                                        focal_gamma,
-                                        focal_alpha,
-                                        result['mae'],
-                                        result['rmse'],
-                                        result['validation_accuracy'],
-                                        result['validation_close_accuracy'],
-                                        result['validation_loss'],
-                                        result['best_epoch']
-                                    ])
+                                    result = train_model(dataset, num_epochs=900, search_mode=True, **config, version=version)
+                                    results.append(result)
 
-                                # Track best configuration by RMSE (lower is better)
-                                if result['rmse'] < best_rmse:
-                                    best_rmse = result['rmse']
-                                    best_config = result
+                                    # Calculate time taken for this configuration
+                                    config_end_time = time.time()
+                                    config_duration = config_end_time - config_start_time
+                                    config_times.append(config_duration)
+                                    configs_completed_this_session += 1
 
-                                print(f"MAE: {result['mae']:.3f}, RMSE: {result['rmse']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
-                                
-                                # Calculate and display time estimates
-                                if config_times:
-                                    mean_time_per_config = sum(config_times) / len(config_times)
-                                    remaining_configs = configs_remaining - configs_completed_this_session
-                                    estimated_remaining_time = mean_time_per_config * remaining_configs
-                                    
-                                    # Convert to human readable format
-                                    hours = int(estimated_remaining_time // 3600)
-                                    minutes = int((estimated_remaining_time % 3600) // 60)
-                                    seconds = int(estimated_remaining_time % 60)
-                                    
-                                    print(f"Config took: {config_duration / 60:.1f} min | Avg: {mean_time_per_config / 60:.1f} min/config")
-                                    print(f"Estimated remaining time: {hours:02d}h {minutes:02d}m {seconds:02d}s ({remaining_configs} configs left)")
-                                    print("-" * 60)
+                                    # Save result to CSV immediately after each configuration
+                                    with open(csv_filename, "a", newline='') as f:
+                                        writer = csv.writer(f)
+                                        writer.writerow([
+                                            hidden_size,
+                                            batch_size,
+                                            learning_rate,
+                                            weight_decay_factor,
+                                            focal_gamma,
+                                            focal_alpha,
+                                            gradient_clip_value,
+                                            result['mae'],
+                                            result['rmse'],
+                                            result['validation_accuracy'],
+                                            result['validation_close_accuracy'],
+                                            result['validation_loss'],
+                                            result['best_epoch']
+                                        ])
+
+                                    # Track best configuration by RMSE (lower is better)
+                                    if result['rmse'] < best_rmse:
+                                        best_rmse = result['rmse']
+                                        best_config = result
+
+                                    print(f"MAE: {result['mae']:.3f}, RMSE: {result['rmse']:.3f}, Exact Acc: {result['validation_accuracy']:.2f}%, Close Acc (±1): {result['validation_close_accuracy']:.2f}%")
+
+                                    # Calculate and display time estimates
+                                    if config_times:
+                                        mean_time_per_config = sum(config_times) / len(config_times)
+                                        remaining_configs = configs_remaining - configs_completed_this_session
+                                        estimated_remaining_time = mean_time_per_config * remaining_configs
+
+                                        # Convert to human readable format
+                                        hours = int(estimated_remaining_time // 3600)
+                                        minutes = int((estimated_remaining_time % 3600) // 60)
+                                        seconds = int(estimated_remaining_time % 60)
+
+                                        print(f"Config took: {config_duration / 60:.1f} min | Avg: {mean_time_per_config / 60:.1f} min/config")
+                                        print(f"Estimated remaining time: {hours:02d}h {minutes:02d}m {seconds:02d}s ({remaining_configs} configs left)")
+                                        print("-" * 60)
     except KeyboardInterrupt:
         print("\nRecherche interrompue par l'utilisateur (Ctrl-C).\nMeilleure configuration trouvée jusqu'ici :")
         print(f"Best RMSE: {best_config['rmse']:.3f}")
@@ -747,7 +758,7 @@ def initialize_dataloader(dataset, batch_size=128):
     return train_loader, val_loader
 
 
-def prediction2labelindex(pred: np.ndarray) -> int:
+def prediction2labelindex(pred: torch.Tensor) -> torch.Tensor:
     """Convert ordinal predictions to class labels, e.g.
 
     [0.9, 0.1, 0.1, 0.1] -> 0
@@ -755,10 +766,9 @@ def prediction2labelindex(pred: np.ndarray) -> int:
     [0.9, 0.9, 0.9, 0.1] -> 2
     etc.
     """
-    pred = np.asarray(pred)
-    if pred.ndim == 1:
-        pred = pred.reshape(1, -1)
-    return (pred > 0.5).cumprod(axis=1).sum(axis=1)
+    # For batch processing: use dim=1 to process along threshold dimension
+    # cumprod along thresholds, then sum to get the grade index for each sample
+    return (pred > 0.5).cumprod(dim=1).sum(dim=1)
 
 
 def prediction2probadist(threshold_probs: np.ndarray) -> dict[str, float]:
@@ -842,12 +852,12 @@ def predict_boulder_grade(boulder, model_path, input_size=11, version="2019"):
 ################
 
 
-def main(phase, version = "2019", epochs = 200, boulder_json = None, model_path = None, boulder_object = None):
+def main(phase, version: str = "2019", epochs: int = 200, boulder_json: dict | None = None, model_path: str | None = None, boulder_object: dict | None = None):
     print(f"Running phase: {phase}, version: {version}")
     if phase == "train":
         holds_data = commons.load_holds_data(version)
         dataset = loading_dataset(holds_data, version)
-        train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=int(epochs), focal_gamma=1.0, focal_alpha=None, early_stopping=True, version=version)
+        train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=int(epochs), focal_gamma=1.0, focal_alpha=None, early_stopping=True, version=version, gradient_clip_value=0.5)
     elif phase == "predict":
         boulder = boulder_object
         if boulder_json:
