@@ -112,7 +112,7 @@ def predict_grade(version="2019"):
         "2016": "2016-boulder_classifier-lr_0.001-epochs_42-hs_512-mae_0.243-acc_84.89.pth",
         "2017": "2017-boulder_classifier-lr_0.001-epochs_53-hs_512-mae_0.125-acc_92.27.pth",
     }[version]
-    complex_model = "ALLMOON-boulder_classifier-lr_0.001-epochs_48-hs_512-mae_0.303-acc_81.47.pth"
+    complex_model = "ALLMOON-boulder_classifier-lr_0.001-epochs_51-hs_512-mae_0.291-acc_82.07.pth"
     simple_model = os.path.join(model_dir, simple_model)
     complex_model = os.path.join(model_dir, complex_model)
     # Build a fake boulder dict for prediction

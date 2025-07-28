@@ -35,7 +35,7 @@ def main(phase, boulder_json = None, model_path = None, boulder_object = None):
     input_size = 12  # Default input size for the model
     if phase == "train":
         dataset = loading_dataset()
-        grader.train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=200, focal_gamma=1.0, focal_alpha=None, early_stopping=True, input_size=input_size)
+        grader.train_model(dataset, hidden_size=512, batch_size=128, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=200, focal_gamma=1.0, focal_alpha=None, early_stopping=True, input_size=input_size, gradient_clip_value=0)
     elif phase == "predict":
         boulder = boulder_object
         if boulder_json:

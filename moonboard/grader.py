@@ -450,10 +450,10 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
         rmse = torch.sqrt(mse_sum / total) if total > 0 else 0.0
         if not search_mode:
             val_loss.append(avg_val_loss)
-            val_accuracy.append(exact_accuracy)
-            val_close_accuracy.append(close_accuracy)
-            val_mae_list.append(mae)
-            val_rmse_list.append(rmse)
+            val_accuracy.append(exact_accuracy.cpu().numpy())
+            val_close_accuracy.append(close_accuracy.cpu().numpy())
+            val_mae_list.append(mae.cpu().numpy())
+            val_rmse_list.append(rmse.cpu().numpy())
 
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Valid Loss: {avg_val_loss:.4f}, Exact Acc: {exact_accuracy:.2f}%, Close Acc (±1): {close_accuracy:.2f}%, MAE: {mae:.3f}, RMSE: {rmse:.3f}")
 
@@ -509,18 +509,18 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
     """
     # Define hyperparameter ranges
     hidden_sizes = [512]  # Test a range of hidden sizes
-    batch_sizes = [32, 64, 128]
-    learning_rates = [1e-3]
+    batch_sizes = [64, 128]
+    learning_rates = [2e-3, 1e-3, 8e-4]
     weight_decay_factors = [0.1]
     # hidden_sizes = [512]
     # batch_sizes = [64]
     # learning_rates = [1e-3]
     # weight_decay_factors = [0]
-    focal_gammas = [0, 1.0, 3.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
+    focal_gammas = [0, 1.0, 5.0]  # focus parameter for Focal Loss 1-5 is a common range 0 is no focal loss
     # focal_alphas = [0.25, 0.5, 0.6, 0.75, 0.8]
     # class weights for Focal Loss, 0.5 means no weighting < 0.5 means more weight on 1s (franchissement de seuil), > 0.5 means more weight on 0s (non franchissement de seuil)
     focal_alphas = [None]
-    gradient_clip_values = [0, 1.0, 2.0]  # Gradient clipping values to prevent exploding gradients
+    gradient_clip_values = [0, 0.5, 1.0, 2.0]  # Gradient clipping values to prevent exploding gradients
 
     best_config = {}
     best_rmse = float('inf')  # RMSE should be minimized, not maximized
@@ -621,7 +621,7 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
     print("Secondary metrics: MAE, Close accuracy (±1 grade), Exact accuracy")
 
     # Calculate total number of configurations to test
-    total_configs = len(hidden_sizes) * len(batch_sizes) * len(learning_rates) * len(weight_decay_factors) * len(focal_gammas) * len(focal_alphas) * len(gradient_clip_value)
+    total_configs = len(hidden_sizes) * len(batch_sizes) * len(learning_rates) * len(weight_decay_factors) * len(focal_gammas) * len(focal_alphas) * len(gradient_clip_values)
     configs_tested = len(tested_configs)
     configs_remaining = total_configs - configs_tested
 
@@ -682,10 +682,10 @@ def hyperparameter_search(dataset, input_size=11, version="2019"):
                                             focal_gamma,
                                             focal_alpha,
                                             gradient_clip_value,
-                                            result['mae'],
-                                            result['rmse'],
-                                            result['validation_accuracy'],
-                                            result['validation_close_accuracy'],
+                                            result['mae'].cpu().numpy(),
+                                            result['rmse'].cpu().numpy(),
+                                            result['validation_accuracy'].cpu().numpy(),
+                                            result['validation_close_accuracy'].cpu().numpy(),
                                             result['validation_loss'],
                                             result['best_epoch']
                                         ])
