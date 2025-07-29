@@ -348,7 +348,6 @@ def plot_data(all_true, all_pred, train_loss, val_loss, val_accuracy, val_close_
     # plt.show()
     plt.close()
 
-
 def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, weight_decay_factor=0.1, num_epochs=100, search_mode: bool = False, focal_gamma: float = 2.0, focal_alpha: float | None = None, early_stopping: bool = True, input_size=11, version="2019", gradient_clip_value: float = 1.0) -> dict[str, float]:
     """
     Evaluate a set of hyperparameters and return key metrics for optimization.
@@ -369,6 +368,7 @@ def train_model(dataset, hidden_size=128, batch_size=64, learning_rate=1e-3, wei
 
     # Define loss function
     loss_func = FocalLoss(gamma=focal_gamma, alpha=focal_alpha)
+    loss_func.to(device)
 
     # weight decay is set to 10% of the learning rate.
     # This is a common practice in deep learning to prevent overfitting

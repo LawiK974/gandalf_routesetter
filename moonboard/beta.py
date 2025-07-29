@@ -157,17 +157,19 @@ def filter_only_finishing_beta(beta_list: list, boulder: list):
             yield beta
 
 
-def possible_betas(boulder, holds_data, span=180, start = None) -> list[list[str]]:
-    """ Returns a list of possible beta for the boulder problem."""
-    beta_list = beta_listing(boulder, holds_data, span=span, start_holds=start)  # Get the list of possible betas for the boulder
-    # filtered_finished_betas = list(filter_only_finishing_beta(beta_list, boulder))
-    filtered_betas = evaluate_betas_difficulty(beta_list, holds_data)  # Evaluate the difficulty of each beta
-    return filtered_betas
+# def possible_betas(boulder, holds_data, span=180, start = None) -> list[list[str]]:
+#     """ Returns a list of possible beta for the boulder problem."""
+#     beta_list = beta_listing(boulder, holds_data, span=span, start_holds=start)  # Get the list of possible betas for the boulder
+#     # filtered_finished_betas = list(filter_only_finishing_beta(beta_list, boulder))
+#     filtered_betas = evaluate_betas_difficulty(beta_list, holds_data)  # Evaluate the difficulty of each beta
+#     return filtered_betas
 
 def best_betas(boulder, betas: list[dict], holds_data, max_betas: int | None = None, start_holds = None) -> list[dict]:
     """ Returns the best beta based on the difficulty score."""
     if not betas:
         return []
+    max_nb_holds = max([len(set([mouv[1:] for mouv in beta])) for beta in betas])  # Get the maximum number of holds used in the betas
+    betas = list(filter(lambda x: len(set([mouv[1:] for mouv in x])) == max_nb_holds, betas))  # Filter betas to only include those that use the maximum number of holds
     filtered_betas = [idx for idx in range(len(betas))]
     for idx, hold in enumerate(boulder):
         if len(filtered_betas) <= 1:
@@ -202,6 +204,8 @@ def best_betas(boulder, betas: list[dict], holds_data, max_betas: int | None = N
     
     # extract the betas from the filtered_betas indices
     result = [beta for idx, beta in enumerate(betas) if idx in filtered_betas]
+    min_mouvs = min([len(beta) for beta in result])  # Get the minimum number of moves in the betas
+    result = list(filter(lambda x: len(x) == min_mouvs, result))  # Filter betas with the minimum number of moves
     # ensure the result is limited to max_betas if specified
     return result[:min(len(result), max_betas or len(result))]
 
@@ -281,6 +285,7 @@ def evaluate_beta_difficulty(beta: list, holds_data: dict) -> dict:
             score["mouvs_at_max_distance"] = 1
         elif distance == score["max_distance"]:
             score["mouvs_at_max_distance"] += 1
+    score['holds'] = len(set([mouv[1:] for mouv in beta]))  # Add the holds used in the beta
     score["mean"] = round(float(score["sum"]) / score["mouvs"]) if score["mouvs"] > 0 else 0
     score["mean_distance"] = round(float(score["sum_distance"]) / score["mouvs"]) if score["mouvs"] > 0 else 0
     return score

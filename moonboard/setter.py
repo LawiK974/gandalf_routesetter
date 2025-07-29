@@ -23,14 +23,14 @@ def get_weight_gaussian(distance: float, mu: float = (ENVERGURE - 22)/2, sigma: 
     return float(stats.norm.pdf(distance, loc=mu, scale=sigma))
 
 
-def get_boulder(span: int = ENVERGURE, hold_types: list = None, version = "2019") -> list[str]:
+def get_boulder(span: int = ENVERGURE, hold_types: list = None, version = "2019", dispersion: float = 0.25) -> list[str]:
     """ Converts a list of holds to a string representation. Optionally filter by hold_types."""
     holds_data = commons.load_holds_data(version)
-    boulder = get_next_hold(span=span, hold_types=hold_types, holds_data=holds_data, start=True)
+    boulder = get_next_hold(span=span, hold_types=hold_types, holds_data=holds_data, start=True, dispersion=dispersion)
     return [chr(65 + y) + str(x+1) for x,y in boulder]
 
 
-def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None, start: bool = False) -> list[tuple[int, int]]:
+def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, hold_types: list = None, holds_data: list = None, start: bool = False, dispersion: float = 0.25) -> list[tuple[int, int]]:
     """ Returns the next hold to grab based on the previous hold, optionally filtering by hold_types."""
     candidates = [[hold for hold in row if commons.get_hold_name(hold) in holds_data] for row in (board[:6] if start else board[previous[0] + 1:])]
     if previous is None:
@@ -48,7 +48,7 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
         possible_holds = []
         weight_list = []
         mu = (span - 22) / 2
-        sigma = mu / 2 
+        sigma = mu * dispersion 
         for row in candidates:
             for new in row:
                 distance = commons.get_distance_pos(previous, new)
@@ -66,8 +66,9 @@ def get_next_hold(previous: tuple[int, int] | None = None, span: int=ENVERGURE, 
             return []
         hold = random.choices(possible_holds, weight_list, k=1)[0]
         start = False
+        previous = previous if start and hold[1:] < previous[1:] else hold #
     # on ajoute la prise courante à la liste des prises
-    return [hold] + get_next_hold(hold, span, hold_types, holds_data, start=start)
+    return [hold] + get_next_hold(hold, span, hold_types, holds_data, start=start, dispersion=dispersion)
 
 
 def main():

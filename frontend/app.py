@@ -34,12 +34,14 @@ def generate_boulder():
     span = int(request.args.get('span', 170))
     hold_types = request.args.get('hold_types')
     version=request.args.get('version', '2019')
+    dispersion = float(request.args.get('dispersion', 0.25))  # Default dispersion value
+    print(span, dispersion)
     if hold_types:
         hold_types = hold_types.split(',')
     else:
         hold_types = None
     try:
-        boulder = setter.get_boulder(span=span, hold_types=hold_types, version=version)
+        boulder = setter.get_boulder(span=span, hold_types=hold_types, version=version, dispersion=dispersion)
         filtered_dataset = None
         if os.path.exists(commons.FILTERED_DATASET_PATH[version]):
             # Check if the generated boulder is in the filtered dataset
@@ -73,7 +75,7 @@ def generate_name():
 
 @app.route("/get-beta/<version>")
 @app.route("/get-beta/")
-@limiter.limit("1 per minute")
+@limiter.limit("10 per minute")
 def get_beta(version="2019"):
     span = int(request.args.get('span', 170))
     boulder = json.loads(request.args.get('boulder'))
