@@ -60,7 +60,7 @@ def generate_boulder():
             "boulder": '',
             "score": '',
             "similar": [],
-            "error": str(e)
+            "error": "An internal error has occurred."
         }, 500
 
 
@@ -95,7 +95,7 @@ def get_beta(version="2019"):
     except Exception as e:
         # raise e  # Re-raise the exception to be caught by the Flask error handler
         traceback.print_exc()
-        return {"betas": [], "error": str(e)}, 500
+        return {"betas": [], "error": "An internal error has occurred."}, 500
     
 
 
