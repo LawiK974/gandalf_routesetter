@@ -28,6 +28,15 @@ limiter = flask_limiter.Limiter(
 def hello_world(version="2019"):
     return render_template("index.html", title=f"Moonboard {version} 40°", image_url=url_for('static', filename=f"{version}.png"), version=version)
 
+def _get_similar_boulders(boulder, version):
+    filtered_dataset = None
+    if os.path.exists(commons.FILTERED_DATASET_PATH[version]):
+        # Check if the generated boulder is in the filtered dataset
+        with open(commons.FILTERED_DATASET_PATH[version], 'r') as f:
+            filtered_dataset = json.load(f)
+    return sb.similar_boulders(boulder, filtered_dataset or sb.load_boulders_from_dataset(commons.DATASET_PATH[version]))
+
+
 @app.route("/generate")
 @limiter.limit("10 per minute")
 def generate_boulder():
@@ -42,12 +51,7 @@ def generate_boulder():
         hold_types = None
     try:
         boulder = setter.get_boulder(span=span, hold_types=hold_types, version=version, dispersion=dispersion)
-        filtered_dataset = None
-        if os.path.exists(commons.FILTERED_DATASET_PATH[version]):
-            # Check if the generated boulder is in the filtered dataset
-            with open(commons.FILTERED_DATASET_PATH[version], 'r') as f:
-                filtered_dataset = json.load(f)
-        similar_boulders, score = sb.similar_boulders(boulder, filtered_dataset or sb.load_boulders_from_dataset(commons.DATASET_PATH[version]))
+        similar_boulders, score = _get_similar_boulders(boulder, version)
         return {
             "boulder": ','.join(boulder),  # Convert holds to comma-separated string
             "score": f"{score*100:.2f}%",
@@ -58,6 +62,30 @@ def generate_boulder():
         traceback.print_exc()
         return {
             "boulder": '',
+            "score": '',
+            "similar": [],
+            "error": "An internal error has occurred."
+        }, 500
+
+
+@app.route("/similar-boulders/<version>", methods=["POST"])
+@app.route("/similar-boulders/", methods=["POST"])
+@limiter.limit("10 per minute")
+def similar_boulders_endpoint(version="2019"):
+    data = request.get_json()
+    boulder = data.get("boulder") if data else None
+    if not boulder:
+        return {"error": "Missing boulder parameter."}, 400
+    try:
+        similar_boulders, score = _get_similar_boulders(boulder, version)
+        return {
+            "score": f"{score*100:.2f}%",
+            "similar": similar_boulders,
+            "error": None
+        }
+    except Exception as e:
+        traceback.print_exc()
+        return {
             "score": '',
             "similar": [],
             "error": "An internal error has occurred."

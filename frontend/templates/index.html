@@ -66,6 +66,7 @@
         <button id="generate_boulder" type="button" class="btn btn-warning">Generate boulder</button>
         <button id="get_beta" type="button" class="btn btn-info ms-2">Get Beta</button>
         <button id="predict_grade" type="button" class="btn btn-success ms-2">Predict Grade</button>
+        <button id="toggle-edit-mode" type="button" class="btn btn-secondary ms-2">Edit Boulder</button>
         <div>
             <p>Generated Boulder: <span id="generated-boulder"></span></p>
             <p>Predicted Grade: <br><span id="predicted-grade"></span></p>
@@ -96,6 +97,7 @@
 <script>
     const COLS = 11;
     const ROWS = 18;
+    const HOLD_STATE_COLORS = { green: '#00FF00', blue: '#0000FF', red: '#FF0000' };
 
     // Define offsets for the grid
     function getOffsets() {
@@ -110,7 +112,7 @@
         return { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM };
     }
 
-    function drawGridOverlay(selectedHolds) {
+    function drawGridOverlay(selectedHolds, holdColors) {
         const img = document.querySelector('#moonboard-image');
         const svg = document.querySelector('#grid-overlay');
         const { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM } = getOffsets();
@@ -159,7 +161,10 @@
             circle.setAttribute('fill', 'none');
             circle.setAttribute('id', 'svg-hold-' + hold); // Assign unique id for hover effect
             let strokeColor;
-            if (index === 0) {
+            // In edit mode each hold carries its own explicit color; otherwise infer it from position
+            if (holdColors && holdColors[hold]) {
+                strokeColor = HOLD_STATE_COLORS[holdColors[hold]];
+            } else if (index === 0) {
                 strokeColor = '#00FF00'; // Green for first
             } else if (index === 1 && row < 6) {
                 strokeColor = '#00FF00'; // Green for second if row < 6
@@ -173,6 +178,165 @@
             svg.appendChild(circle);
         });
     }
+
+    // Edit mode state: each hold has an explicit color (green=start, blue=middle, red=end)
+    const MAX_GREEN_HOLDS = 2;
+    const MAX_RED_HOLDS = 2;
+    let isEditMode = false;
+    let manualHoldStates = new Map(); // hold -> 'green' | 'blue' | 'red'
+
+    // Inverse of drawGridOverlay's positioning math: pixel position -> hold name
+    function pixelToHold(offsetX, offsetY) {
+        const img = document.querySelector('#moonboard-image');
+        const { OFFSET_LEFT, OFFSET_RIGHT, OFFSET_TOP, OFFSET_BOTTOM } = getOffsets();
+        const gridWidth = img.offsetWidth - OFFSET_LEFT - OFFSET_RIGHT;
+        const gridHeight = img.offsetHeight - OFFSET_TOP - OFFSET_BOTTOM;
+        const cellWidth = gridWidth / COLS;
+        const cellHeight = gridHeight / ROWS;
+        let col = Math.floor((offsetX - OFFSET_LEFT) / cellWidth);
+        let row = ROWS - 1 - Math.floor((offsetY - OFFSET_TOP) / cellHeight);
+        col = Math.min(Math.max(col, 0), COLS - 1);
+        row = Math.min(Math.max(row, 0), ROWS - 1);
+        return String.fromCharCode(65 + col) + (row + 1);
+    }
+
+    function countHoldsWithState(state) {
+        return Array.from(manualHoldStates.values()).filter(s => s === state).length;
+    }
+
+    // Cycles a hold through: none -> green -> blue -> red -> none, skipping a color once its cap is reached
+    function cycleHoldState(hold) {
+        const current = manualHoldStates.get(hold);
+        if (current === undefined) {
+            if (countHoldsWithState('green') < MAX_GREEN_HOLDS) {
+                manualHoldStates.set(hold, 'green');
+            } else {
+                manualHoldStates.set(hold, 'blue');
+            }
+        } else if (current === 'green') {
+            manualHoldStates.set(hold, 'blue');
+        } else if (current === 'blue') {
+            if (countHoldsWithState('red') < MAX_RED_HOLDS) {
+                manualHoldStates.set(hold, 'red');
+            } else {
+                manualHoldStates.delete(hold);
+            }
+        } else {
+            manualHoldStates.delete(hold);
+        }
+    }
+
+    // Rebuilds an ordered hold list (green first, then blue, then red) matching what the backend expects for start/end
+    function getOrderedManualHolds() {
+        const byState = { green: [], blue: [], red: [] };
+        manualHoldStates.forEach((state, hold) => byState[state].push(hold));
+        return [...byState.green, ...byState.blue, ...byState.red];
+    }
+
+    // Infers per-hold colors from an existing (generated) boulder list, using the same rules as drawGridOverlay
+    function inferHoldStatesFromOrderedList(holds) {
+        manualHoldStates = new Map();
+        holds.forEach((hold, index) => {
+            const row = parseInt(hold.slice(1)) - 1;
+            let state;
+            if (index === 0) {
+                state = 'green';
+            } else if (index === 1 && row < 6) {
+                state = 'green';
+            } else if (index === holds.length - 1) {
+                state = 'red';
+            } else {
+                state = 'blue';
+            }
+            manualHoldStates.set(hold, state);
+        });
+    }
+
+    function renderManualHolds() {
+        const orderedHolds = getOrderedManualHolds();
+        document.querySelector('#generated-boulder').textContent = orderedHolds.join(',');
+        drawGridOverlay(orderedHolds, Object.fromEntries(manualHoldStates));
+    }
+
+    // Shared rendering for the "Most similar problems" panel, used by both generate and manual validate flows
+    function renderSimilarProblems(data, sourceLabel) {
+        if (data.error) {
+            document.querySelector('#similar-problem').innerHTML = `<span class='text-danger'>Error: ${data.error}</span>`;
+            return;
+        }
+        let similarList = '';
+        if (Array.isArray(data.similar) && data.similar.length > 0) {
+            similarList = '<ul class="text-start">' + data.similar.map(boulder => {
+                return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade ? '(' + boulder.userGrade + ')' : ''} by <i>${boulder.setter}</i> ${boulder.rating}⭐️/${boulder.repeats}✅. (${boulder.holds.join(', ')})</li>`;
+            }).join('') + '</ul>';
+        } else {
+            similarList = '<i>No similar boulders found.</i>';
+        }
+        document.querySelector('#similar-problem').innerHTML = `Existing problems, <b>${data.score}</b> similar to the ${sourceLabel} problem` + similarList;
+    }
+
+    document.querySelector('#grid-overlay').addEventListener('click', function (event) {
+        if (!isEditMode) return;
+        const hold = pixelToHold(event.offsetX, event.offsetY);
+        cycleHoldState(hold);
+        renderManualHolds();
+    });
+
+    document.querySelector('#toggle-edit-mode').addEventListener('click', function () {
+        const generateBtn = document.querySelector('#generate_boulder');
+        const betaBtn = document.querySelector('#get_beta');
+        const predictBtn = document.querySelector('#predict_grade');
+        const overlay = document.querySelector('#grid-overlay');
+
+        if (!isEditMode) {
+            // Entering edit mode: seed from the currently displayed boulder (if any) and reset results
+            const currentBoulder = document.querySelector('#generated-boulder').textContent;
+            const currentHolds = currentBoulder ? currentBoulder.split(',').map(h => h.trim()).filter(Boolean) : [];
+            inferHoldStatesFromOrderedList(currentHolds);
+            document.getElementById('predicted-grade').innerHTML = '';
+            document.getElementById('similar-problem').innerHTML = 'Editing boulder: click on the board to add or remove holds, then validate.';
+            generateBtn.disabled = true;
+            betaBtn.disabled = true;
+            predictBtn.disabled = true;
+            overlay.style.pointerEvents = 'auto';
+            overlay.style.cursor = 'pointer';
+            this.textContent = 'Validate Boulder';
+            this.classList.replace('btn-secondary', 'btn-primary');
+            isEditMode = true;
+            renderManualHolds();
+        } else {
+            // Validating: fetch similar problems for the manually built boulder
+            overlay.style.pointerEvents = 'none';
+            overlay.style.cursor = 'default';
+            generateBtn.disabled = false;
+            betaBtn.disabled = false;
+            predictBtn.disabled = false;
+            this.textContent = 'Edit Boulder';
+            this.classList.replace('btn-primary', 'btn-secondary');
+            isEditMode = false;
+
+            const orderedHolds = getOrderedManualHolds();
+            if (orderedHolds.length === 0) {
+                document.getElementById('similar-problem').innerHTML = '<i>No holds selected.</i>';
+                return;
+            }
+            fetch(`/similar-boulders/{{ version }}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ boulder: orderedHolds })
+            })
+                .then(response => {
+                    if (response.status === 429) {
+                        throw new Error('Too many requests, please wait and try again.');
+                    }
+                    return response.json();
+                })
+                .then(data => renderSimilarProblems(data, 'manually created'))
+                .catch(error => {
+                    document.getElementById('similar-problem').innerHTML = `<span class='text-danger'>Error: ${error}</span>`;
+                });
+        }
+    });
 
     // Update span value display
     const spanSlider = document.getElementById('span-slider');
@@ -213,16 +377,7 @@
                 }
                 console.log(data)
                 document.querySelector('#generated-boulder').textContent = data.boulder;
-                // Format similar boulders as a user-friendly list
-                let similarList = '';
-                if (Array.isArray(data.similar) && data.similar.length > 0) {
-                    similarList = '<ul class="text-start">' + data.similar.map(boulder => {
-                        return `<li><b>${boulder.name}</b>, ${boulder.grade} ${boulder.userGrade ? '(' + boulder.userGrade + ')' : ''} by <i>${boulder.setter}</i> ${boulder.rating}⭐️/${boulder.repeats}✅. (${boulder.holds.join(', ')})</li>`;
-                    }).join('') + '</ul>';
-                } else {
-                    similarList = '<i>No similar boulders found.</i>';
-                }
-                document.querySelector('#similar-problem').innerHTML = `Existing problems, <b>${data.score}</b> similar to the AI generated problem` + similarList;
+                renderSimilarProblems(data, 'AI generated');
 
                 const holds = data.boulder.split(','); // Assuming holds are comma-separated
                 drawGridOverlay(holds);
